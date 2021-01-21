@@ -1,0 +1,50 @@
+.idea
+.Rhistory
+
+# Output data
+./data/raw_post_soupx
+./data/*.rds
+*.gz
+*.mtx
+*.h5ad
+*.pickle
+*.pickle*
+
+# Output figures
+*.ai
+*.png
+*.pdf
+*.xlsx
+*.iml
+.sync-conflict*
+*.csv
+
+# R stuff
+renv/library/
+renv/staging/
+.Rhistory
+
+
+# Temp files
+~$*
+
+
+# General
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Icon must end with two \r
+Icon
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent

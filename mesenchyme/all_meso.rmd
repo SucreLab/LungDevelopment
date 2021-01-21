@@ -1,0 +1,560 @@
+---
+title: "scSEQ analysis of the developing mesenchyme"
+author: Nick Negretti
+date: 11/17/20
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung mesenchyme
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE}
+setwd("~/postdoc/code/devo_scseq")
+
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+set.seed(42) # For reproducability
+
+N_WORKERS <- 3
+options(future.globals.maxSize=11*1024*1024^2) # First number is GB of memory allowed
+plan("multiprocess", workers = N_WORKERS)
+```
+## Load data from merge and clean pipeline
+```{r}
+meso <- readRDS("./data/meso_full_noGm42418_sct_p7b_integrated_retransform.rds")
+```
+
+## UMAP and clustering
+```{r, fig.width = 12}
+plan("sequential")
+
+# Make the tiempoints an ordered factor, so they are displayed consistantly
+meso$timepoint <- ordered(as.factor(meso$timepoint), unique(meso$timepoint))
+
+# cluster and UMAP from the previous processing seems fine
+# k_param = 25, dims_neighbors = 1:15, cluster_res = 0.15  - is what is after the integration pipeline
+
+p_cluster <- DimPlot(meso) + umap_theme() +
+        scale_colour_manual(name = "Cluster", values = color_category_20) +
+        theme(aspect.ratio=1) +
+        theme(legend.text=element_text(size=14),
+              legend.title=element_text(size=14))
+p_time <- DimPlot(meso, group.by = "timepoint") + umap_theme() +
+        scale_colour_manual(name = "Timepoint", values = color_scanpy_default)+
+        theme(aspect.ratio=1) +
+        theme(legend.text=element_text(size=14),
+              legend.title=element_text(size=14))
+
+p_cluster + p_time + plot_annotation("Mesenchyme")
+
+pdf("./figures/meso/supp_umap.pdf", width = 12, height = 4.5)
+p_cluster + p_time + plot_annotation("Mesenchyme")
+dev.off()
+```
+
+## Identify marker genes in each cluster
+```{r}
+plan("multiprocess", workers = N_WORKERS)
+filename <- "./data/meso_markers_clusters.rds"
+if (!file.exists(filename)) {
+  meso_markers <- parallelFindAllMarkers(meso)
+  saveRDS(meso_markers, filename)
+} else {
+  meso_markers <- readRDS(filename)
+}
+```
+
+### Cluster 0
+```{r}
+meso_markers[[0 + 1]]
+```
+
+### Cluster 1
+```{r}
+meso_markers[[1 + 1]]
+```
+
+### Cluster 2
+```{r}
+meso_markers[[2 + 1]]
+```
+
+### Cluster 3
+```{r}
+meso_markers[[3 + 1]]
+```
+
+### Cluster 4
+```{r}
+meso_markers[[4 + 1]]
+```
+
+### Cluster 5
+```{r}
+meso_markers[[5 + 1]]
+```
+
+### Cluster 6
+```{r}
+meso_markers[[6 + 1]]
+```
+
+### Cluster 7
+```{r}
+meso_markers[[7 + 1]]
+```
+
+### Cluster 8
+```{r}
+meso_markers[[8 + 1]]
+```
+
+
+## Use known marker genes to determine the identity of the clusters
+
+```{r}
+
+
+marker_genes <- c("Wnt2", "Macf1", # Wnt2 fibroblasts 0
+                  "Tgfbi", "Wnt5a", # Myofibroblasts 1
+                  "Dcn", "Col1a1", # Adventitial fibroblast 2
+                  "Top2a", "Mki67", # Prenatal Wnt2 3
+                  "Cspg4", "Cox4i2", # Pericyte 4
+                  "Ednrb", "Pdgfra", # Prenatal myo 5
+                  "Wt1", "Upk3b", # Mesothelium 6
+                  "Eln", "Acta2", # Smooth muscle 7
+                  "Mpz", "Mal", # Neuron 8
+                  "Tnnt2", "Actc1" # Cardiomyocyte
+)
+
+
+heatmap_df <- make_heatmap_df(meso, marker_genes, sort_clusters = FALSE)
+
+heatmap_df <- heatmap_df %>% group_by(gene,cluster) %>% summarise(expression_mean=mean(expression))
+
+# For brackets and text (see ./helper_functions/brackets.R)
+n_clusters <- max(as.numeric(Idents(meso)))
+text_vec <- list(c("Wnt2+ FB", 2),
+                 c("Myofibroblast", 2),
+                 c("Adventitial FB", 2),
+                 c("Prenatal\nWnt2+ FB", 2),
+                 c("Pericyte", 2),
+                 c("Prenatal\nMyofibroblast", 2),
+                 c("Mesothelium", 2),
+                 c("Smooth\nmuscle", 2),
+                 c("Neuron", 2),
+                 c("Cardiomyocyte", 2)
+)
+
+meso_heatmap <- ggplot(heatmap_df, aes(x = gene, y = cluster, fill = expression_mean)) +
+        geom_tile(color = "white", size = 0.1) +
+        scale_fill_distiller(palette = "Blues", direction = 1, trans = "sqrt", name = "Expression") +
+        coord_fixed(ratio = 1, xlim = NULL, ylim = c(1,n_clusters), expand = TRUE, clip = "off") +
+        theme(plot.margin=unit(c(1.5,1,1,1),"cm")) +
+        addBrackets(text_vec) +
+        addText(text_vec, n_clusters) +
+        theme(panel.background = element_rect(fill = "white", colour = "black", size = 0),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              axis.title.x  = element_blank(),
+              axis.text.x = element_text(size = 12, face = "italic"),
+              axis.text.y = element_text(size = 12),
+              axis.title.y = element_text(size = 14),
+              legend.title = element_text(size = 14),
+              legend.text = element_text(size = 12)
+        ) +
+        labs(y = "Cluster") +
+        theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+meso_heatmap
+
+pdf("./figures/meso/supp_cluster_markers.pdf", height = 5.5, width = 12)
+meso_heatmap
+dev.off()
+```
+
+
+## Fraction of the cells over time
+```{r}
+timepoint_factor <- factor(meso$timepoint)
+timepoint_ordered <- ordered(timepoint_factor, levels = unique(meso$timepoint))
+
+cell_ident_df <- data.frame(timepoint = timepoint_ordered,
+                            cluster = Idents(meso))
+
+prop_celltypes <- round(prop.table(table(cell_ident_df$timepoint, cell_ident_df$cluster), 1) * 100, 1)
+
+
+ggplot(melt(prop_celltypes), aes(y=value, x=Var1)) +
+        geom_area(aes(color = as.factor(Var2), group=as.factor(Var2), fill = as.factor(Var2))) +
+        xlab("Day") +
+        ylab("% of cells") +
+        labs(fill = "Cluster", color = "Cluster", group = "Cluster") +
+        scale_colour_manual(aesthetics = c("color", "fill"), values=color_category_20)
+```
+
+
+
+## Apply labels
+
+```{r}
+meso_relabel <- meso
+# Label the cell-types
+text_vec <- list(c("Wnt2+", 2),
+                 c("Myofibroblast", 2),
+                 c("Adventitial", 2),
+                 c("Prenatal\nWnt2+", 2),
+                 c("Pericyte", 2),
+                 c("Prenatal\nMyofibroblast", 2),
+                 c("Mesothelium", 2),
+                 c("Smooth\nmuscle", 2),
+                 c("Neuron", 2))
+levels(Idents(meso_relabel)) <- c("Wnt2+", #0
+                                  "Myofibroblast", #1
+                                  "Adventitial fibroblast", #2
+                                  "Prenatal Wnt2+", #3
+                                  "Pericyte", #4
+                                  "Prenatal Myofibroblast", #5
+                                  "Mesothelium", #6
+                                  "Smooth muscle", #7
+                                  "Neuron" #8
+
+)
+Idents(meso_relabel) <- ordered(Idents(meso_relabel), c("Prenatal Wnt2+", "Wnt2+", "Prenatal Myofibroblast", "Myofibroblast", "Adventitial fibroblast", "Pericyte", "Mesothelium", "Smooth muscle", "Neuron"))
+
+Ident_md <- Idents(meso_relabel)
+levels(Ident_md)[1:2] <- c("Prenatal *Wnt2*+ FB", "*Wnt2*+ FB")
+
+meso_relabel$Ident_md <- Ident_md
+
+meso_relabel$bulk_celltype <- "Mesenchyme"
+
+# Save this for use by other stages of the analysis
+filename <- "./data/meso_full_celltype_labels.rds"
+if (!file.exists(filename)) {
+  saveRDS(meso_relabel, filename)
+}
+```
+
+
+# Relabel clusters based on marker gene expression
+```{r, fig.width = 12}
+p_rename_cluster <- DimPlot(meso_relabel, group.by = "Ident_md") + umap_theme() +
+        scale_colour_manual(name = "Cluster", values = color_category_20) +
+        theme(aspect.ratio=1) +
+        theme(legend.text=element_markdown(size=14),
+              legend.title=element_text(size=14))
+
+
+p_time <- DimPlot(meso_relabel, group.by = "timepoint") + umap_theme() +
+        scale_colour_manual(name = "Timepoint", values = color_category_20) +
+        theme(aspect.ratio=1) +
+        theme(legend.text=element_text(size=14),
+              legend.title=element_text(size=14))
+
+p_time + p_rename_cluster + plot_annotation("Mesenchyme")
+
+
+pdf("./figures/meso/umap.pdf", width = 6, height = 4.5)
+p_rename_cluster + plot_annotation("Mesenchyme")
+dev.off()
+```
+
+## Re-confirm the markers in the relabeled clusters
+
+```{r}
+plan("multiprocess", workers = N_WORKERS)
+filename <- "./data/meso_markers_clusters_relabeled.rds"
+if (!file.exists(filename)) {
+  meso_relabeled_markers <- parallelFindAllMarkers(meso_relabel)
+  saveRDS(meso_relabeled_markers, filename)
+} else {
+  meso_relabeled_markers <- readRDS(filename)
+}
+```
+
+
+### Prenatal Wnt2+
+```{r}
+meso_relabeled_markers[[0 + 1]]
+```
+
+### Wnt2+
+```{r}
+meso_relabeled_markers[[1 + 1]]
+```
+### Prenatal Myofibroblast
+```{r}
+meso_relabeled_markers[[2 + 1]]
+```
+
+### Myofibroblast
+```{r}
+meso_relabeled_markers[[3 + 1]]
+```
+
+### Adventitial fibroblast
+```{r}
+meso_relabeled_markers[[4 + 1]]
+```
+
+### Pericyte
+```{r}
+meso_relabeled_markers[[5 + 1]]
+```
+
+### Mesothelium
+```{r}
+meso_relabeled_markers[[6 + 1]]
+```
+
+### Neuron
+```{r}
+meso_relabeled_markers[[7 + 1]]
+```
+
+
+```{r}
+timepoint_factor <- factor(meso_relabel$timepoint)
+timepoint_ordered <- ordered(timepoint_factor, levels = unique(meso_relabel$timepoint))
+
+cell_ident_df <- data.frame(timepoint = timepoint_ordered,
+                            cluster = Idents(meso_relabel))
+
+prop_celltypes <- round(prop.table(table(cell_ident_df$timepoint, cell_ident_df$cluster), 1) * 100, 1)
+
+print(prop_celltypes)
+colnames(prop_celltypes)[1:2] <- c("Prenatal *Wnt2*+ FB", "*Wnt2*+ FB")
+meso_mountain <- ggplot(melt(prop_celltypes), aes(y=value, x=Var1)) +
+        geom_area(aes(color = as.factor(Var2), group=as.factor(Var2), fill = as.factor(Var2))) +
+        xlab("Day") +
+        ylab("% of cells") +
+        labs(fill = "Cluster", color = "Cluster", group = "Cluster") +
+        scale_colour_manual(aesthetics = c("color", "fill"), values=color_category_20) +
+        theme(legend.key = element_blank(),
+              legend.text = element_markdown(size=14),
+              legend.title = element_text(size=14),
+              axis.text.x  = element_text(size=14),
+              axis.text.y = element_text(size=14),
+              axis.title.x = element_text(size=14),
+              axis.title.y = element_text(size=14),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.background = element_rect(fill = "white")
+        ) +
+        scale_x_discrete(expand = c(.01, .01)) +
+        scale_y_continuous(expand = c(.01,.01)) +
+        coord_fixed(0.05)
+
+
+meso_mountain
+
+
+pdf("./figures/meso/labeled_mountain.pdf", width = 9, height = 4)
+meso_mountain
+dev.off()
+
+```
+
+## Wnt2 and Wnt5a expression
+```{r, fig.width = 12}
+wnt2_meso_plot <- FeaturePlot(meso, "Wnt2") +
+        featureplot_theme() +
+        theme(aspect.ratio=1) +
+        scale_color_viridis(name = "Expression", direction = -1)
+wnt5a_meso_plot <- FeaturePlot(meso, "Wnt5a") +
+        featureplot_theme() +
+        theme(aspect.ratio=1) +
+        scale_color_viridis(name = "Expression", direction = -1)
+
+wnt2_meso_plot + wnt5a_meso_plot + plot_layout(ncol = 2)
+
+pdf("./figures/meso/meso_wnt_plot.pdf", width = 12, height = 4.5)
+wnt2_meso_plot + wnt5a_meso_plot + plot_layout(ncol = 2)
+dev.off()
+```
+
+
+# Higher res clustering
+
+## UMAP and clustering with increased granularity
+```{r, fig.width = 12}
+plan("sequential")
+
+# cluster and UMAP from the previous processing seems fine
+# k_param = 25, dims_neighbors = 1:15, cluster_res = 0.15  - is what is after the integration pipeline
+meso_highres <- cluster_pca_umap(meso, k_param = 25, dims_umap = 1:15, dims_neighbors = 1:25, cluster_res = 0.2) # Note, this breaks if future is set to plan: multiprocess
+
+
+p_cluster <- DimPlot(meso_highres) + umap_theme() +
+        scale_colour_manual(name = "Cluster", values = color_category_20) +
+        theme(aspect.ratio=1)
+p_time <- DimPlot(meso_highres, group.by = "timepoint") + umap_theme() +
+        scale_colour_manual(name = "Timepoint", values = color_scanpy_default)+
+        theme(aspect.ratio=1)
+
+p_cluster + p_time + plot_annotation("Mesenchyme")
+
+#pdf("./figures/meso/supp_umap_highres.pdf", width = 12, height = 4.5)
+#p_cluster + p_time + plot_annotation("Mesenchyme")
+#dev.off()
+```
+
+```{r}
+
+ggplot_data <- as.data.frame(Embeddings(meso_highres, reduction = "umap"))
+ggplot_data$named_clusters <- Idents(meso_relabel)
+ggplot_data$timepoint <- meso_relabel$timepoint
+ggplot_data$subclusters <- Idents(meso_highres)
+
+myo_highlight <- ggplot() +
+        geom_point(data = ggplot_data[!(ggplot_data$named_clusters %in% c("Prenatal Myofibroblast", "Myofibroblast")),],
+                   aes(x = UMAP_1, y = UMAP_2), size = 0.1, alpha = 0.2, color = "gray") +
+        geom_point(data = ggplot_data[(ggplot_data$named_clusters %in% c("Prenatal Myofibroblast", "Myofibroblast")),],
+                   aes(x = UMAP_1, y = UMAP_2, color = timepoint), size = 0.1) +
+        umap_theme() +
+        scale_colour_manual(name = "Timepoint", values = color_scanpy_default) +
+        theme(aspect.ratio=1) +
+        theme(legend.text=element_text(size=14),
+              legend.title=element_text(size=14)) +
+        guides(colour = guide_legend(override.aes = list(size=3))) +
+        ggtitle("Myofibroblasts by time")
+
+myo_highlight
+
+
+myo_supp_highlight <- ggplot() +
+        geom_point(data = ggplot_data[!(ggplot_data$subclusters %in% c(0,6,8,10)),],
+                   aes(x = UMAP_1, y = UMAP_2), size = 0.1, alpha = 0.2, color = "gray") +
+        geom_point(data = ggplot_data[(ggplot_data$subclusters %in% c(0,6,8,10)),],
+                   aes(x = UMAP_1, y = UMAP_2, color = subclusters), size = 0.1) +
+        umap_theme() +
+        scale_colour_manual(name = "Cluster", values = color_scanpy_default, labels = c("E12/E15 Myofibroblast",
+                                                                                        "E18 Myofibroblast",
+                                                                                        "Proliferating Myofibroblast",
+                                                                                        "Mature Myofibroblast"),
+        breaks = c(10,6,8,0)) +
+        theme(aspect.ratio=1) +
+        theme(legend.text=element_text(size=14),
+              legend.title=element_text(size=14)) +
+        guides(colour = guide_legend(override.aes = list(size=3))) +
+        ggtitle("Myofibroblast subclusters")
+
+myo_supp_highlight
+
+pdf("./figures/meso/umap_myo_timepoint.pdf", width = 5, height = 4.5)
+myo_highlight
+dev.off()
+
+pdf("./figures/meso/umap_myo_supp_cluster.pdf", width = 6, height = 4.5)
+myo_supp_highlight
+dev.off()
+
+```
+
+## Identify marker genes in each cluster
+```{r}
+plan("multiprocess", workers = N_WORKERS)
+filename <- "./data/meso_markers_clusters_highres.rds"
+if (!file.exists(filename)) {
+  meso_markers_highres <- parallelFindAllMarkers(meso_highres)
+  saveRDS(meso_markers_highres, filename)
+} else {
+  meso_markers_highres <- readRDS(filename)
+}
+```
+
+### Cluster 0
+```{r}
+meso_markers_highres[[0 + 1]]
+```
+
+### Cluster 1
+```{r}
+meso_markers_highres[[1 + 1]]
+```
+
+### Cluster 2
+```{r}
+meso_markers_highres[[2 + 1]]
+```
+
+### Cluster 3
+```{r}
+meso_markers_highres[[3 + 1]]
+```
+
+### Cluster 4
+```{r}
+meso_markers_highres[[4 + 1]]
+```
+
+### Cluster 5
+```{r}
+meso_markers_highres[[5 + 1]]
+```
+
+### Cluster 6
+```{r}
+meso_markers_highres[[6 + 1]]
+```
+
+### Cluster 7
+```{r}
+meso_markers_highres[[7 + 1]]
+```
+
+### Cluster 8
+```{r}
+meso_markers_highres[[8 + 1]]
+```
+
+### Cluster 9
+```{r}
+meso_markers_highres[[9 + 1]]
+```
+
+### Cluster 10
+```{r}
+meso_markers_highres[[10 + 1]]
+```
+
+### Cluster 11
+```{r}
+meso_markers_highres[[11 + 1]]
+```
+
+### Cluster 12
+```{r}
+meso_markers_highres[[12 + 1]]
+```
+
+# Save markers for detailed meso clusters
+```{r}
+meso_highres_myo_clusters <- c(0,6,8,10)
+meso_highres_myo_names <- c("Mature myofibroblasts", "E18 myofibroblasts", "Proliferating myofibroblasts", "E12-E15 myofibroblasts")
+
+wb_myo_markers <- createWorkbook()
+for (idx in seq_along(meso_highres_myo_clusters)){
+  i <- meso_highres_myo_clusters[idx] + 1
+  addWorksheet(wb_myo_markers, meso_highres_myo_names[idx])
+  writeData(wb_myo_markers, meso_highres_myo_names[idx], meso_markers_highres[[i]], rowNames = TRUE)
+}
+saveWorkbook(wb_myo_markers, file = "./figures/meso/myo_highres_marker_genes.xlsx", overwrite = TRUE)
+
+
+```
+
+```{r}
+wnt5a_all_myo <- VlnPlot(subset(meso_relabel, ident = c("Myofibroblast", "Prenatal Myofibroblast")), "Wnt5a", group.by = "timepoint") +ggtitle("All myofibroblasts")
+wnt5a_mature_myo <-  VlnPlot(subset(meso_highres, ident = 0), "Wnt5a", group.by = "timepoint") + ggtitle("Mature myofibroblasts")
+wnt5a_proliferating_myo <- VlnPlot(subset(meso_highres, ident = 8), "Wnt5a", group.by = "timepoint") + ggtitle("Proliferating myofibroblasts")
+wnt5a_e18_myo <- VlnPlot(subset(meso_highres, ident = 6), "Wnt5a", group.by = "timepoint") + ggtitle("'E18' myofibroblasts")
+```

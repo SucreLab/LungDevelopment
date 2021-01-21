@@ -1,0 +1,809 @@
+---
+title: "scSEQ analysis of all lung cells"
+author: Nick Negretti
+date: 9/30/20
+output: rmarkdown::github_document
+---
+
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE}
+setwd("~/postdoc/code/devo_scseq")
+
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+set.seed(42) # For reproducability
+
+N_WORKERS <- 3
+n_print <- 30
+options(future.globals.maxSize=2048*1024^2)
+plan("multiprocess", workers = N_WORKERS)
+```
+
+
+
+## UMAP and clustering
+```{r, fig.width = 12}
+
+all_cells <- readRDS("./data/merged_alldata_noGm42418_sct_p7b_integrated_retransform.rds")
+all_cells$cell_subtype[all_cells$cell_subtype == "Matrix fibroblast"] <- "Adventitial fibroblast"
+all_cells$cell_subtype[all_cells$cell_subtype == "Prenatal Wnt2+"] <- "Proliferating Wnt2+"
+all_cells$cell_subtype[all_cells$cell_subtype == "Prenatal Myofibroblast"] <- "Proliferating Myofibroblast"
+
+print(ncol(all_cells))
+```
+
+```{r}
+timepoint_factor <- factor(all_cells$timepoint)
+timepoint_ordered <- ordered(timepoint_factor, levels = unique(all_cells$timepoint))
+
+cell_ident_df <- data.frame(timepoint = timepoint_ordered,
+                            cluster = Idents(all_cells))
+
+table(cell_ident_df$timepoint)
+```
+
+```{r, fig.width = 12}
+Command(all_cells)
+plan("sequential")
+
+# Make the tiempoints an ordered factor, so they are displayed consistantly
+all_cells$timepoint <- ordered(as.factor(all_cells$timepoint), unique(all_cells$timepoint))
+
+
+#all_cells <- cluster_pca_umap(all_cells, k_param = 25, dims_neighbors = 1:15, cluster_res = 0.15) # Note, this breaks if future is set to plan: multiprocess
+
+p_cluster <- DimPlot(all_cells) + umap_theme() +
+        scale_colour_manual(name = "Cluster", values = color_scanpy_viridis20) +
+        theme(aspect.ratio=1)
+p_cluster
+
+p_time <- DimPlot(all_cells, group.by = "timepoint") + umap_theme() +
+        scale_colour_manual(name = "Timepoint", values = color_scanpy_default)+
+        theme(aspect.ratio=1)
+
+# Function for going from Seurat objects to UMAP projections easily.
+fortify.Seurat <- function(x){
+  xy <- as.data.frame(Embeddings(x, reduction = "umap"))
+  colnames(xy) <- c("x", "y")
+  xy$x <- as.numeric(xy$x)
+  xy$y <- as.numeric(xy$y)
+
+  return(cbind(xy, as.data.frame(x@meta.data)))
+}
+
+
+all_fortify <- fortify.Seurat(all_cells)
+epi_fortify <- fortify.Seurat(subset(all_cells, bulk_celltype == "Epithelium"))
+endo_fortify <- fortify.Seurat(subset(all_cells, bulk_celltype == "Endothelium"))
+meso_fortify <- fortify.Seurat(subset(all_cells, bulk_celltype == "Mesenchyme"))
+
+
+epi_fortify$cell_subtype <- ordered(as.factor(epi_fortify$cell_subtype), c("Primordial", "Type I", "Type II", "Cilliated", "Secretory", "Transitional", "Neuroendocrine"))
+endo_fortify$cell_subtype <- ordered(endo_fortify$cell_subtype, c("Arterial maEC", "Venous maEC", "miEC", "Car4+", "Proliferating", "Lymphatic"))
+meso_fortify$cell_subtype <- ordered(as.factor(meso_fortify$cell_subtype), c("Proliferating Wnt2+", "Wnt2+", "Proliferating Myofibroblast", "Myofibroblast", "Adventitial fibroblast", "Pericyte", "Mesothelium", "Smooth muscle", "Neuron"))
+
+
+epi_fortify$cell_subtype <- renameFactorIdent(epi_fortify$cell_subtype, "Type I", "AT1")
+epi_fortify$cell_subtype <- renameFactorIdent(epi_fortify$cell_subtype, "Type II", "AT2")
+meso_fortify$cell_subtype <- renameFactorIdent(meso_fortify$cell_subtype, "Proliferating Wnt2+", "Proliferating *Wnt2*+ FB")
+meso_fortify$cell_subtype <- renameFactorIdent(meso_fortify$cell_subtype, "Wnt2+", "*Wnt2*+ FB")
+meso_fortify$cell_subtype <- renameFactorIdent(meso_fortify$cell_subtype, "Neuron", "Other")
+endo_fortify$cell_subtype <- renameFactorIdent(endo_fortify$cell_subtype, "Car4+", "*Car4*+ EC")
+endo_fortify$cell_subtype <- renameFactorIdent(endo_fortify$cell_subtype, "Proliferating", "Proliferating miEC")
+
+all_umap <- ggplot() + umap_theme() +
+        geom_point(data = epi_fortify, aes(x = x, y = y, color = cell_subtype), size = .1) +
+        scale_colour_manual(name = "Epithelium", values = color_category_20, guide = guide_legend(override.aes = list(size=3), order = 1)) +
+        theme(aspect.ratio=1,
+              legend.text=element_text(size=14),
+              legend.title=element_text(size=14)) +
+        new_scale_color() +
+          geom_point(data = endo_fortify, aes(x = x, y = y, color = cell_subtype), size = .1) +
+          scale_colour_manual(name = "Endothelium", values = color_category_20, guide = guide_legend(override.aes = list(size=3), order = 2)) +
+          theme(legend.text=element_markdown(size=14),
+                legend.title=element_text(size=14)) +
+          guides(colour = guide_legend(override.aes = list(size=3))) +
+        new_scale_color() +
+          geom_point(data = meso_fortify, aes(x = x, y = y, color = cell_subtype), size = .1) +
+          scale_colour_manual(name = "Mesenchyme", values = color_category_20, guide = guide_legend(override.aes = list(size=3), order = 3)) +
+          theme(legend.text=element_markdown(size=14),
+                legend.title=element_text(size=14)) +
+          guides(colour = guide_legend(override.aes = list(size=3))) +
+          labs(x = "UMAP_1", y = "UMAP_2") #+
+        #new_scale_color() +
+        #  stat_ellipse(data = all_fortify, aes(x = x, y = y, color = bulk_celltype), type = "norm", level = 0.99) +
+        #  scale_color_manual(name = "Cell type", values = color_scanpy_default)
+
+all_umap
+
+pdf("./figures/all/all_umap_nolines.pdf", width = 11, height = 7)
+all_umap
+dev.off()
+
+
+```
+
+## Small plots of just individual timepoints
+```{r}
+
+timepoint_str <- "P3"
+
+for (timepoint_str in unique(as.character(all_fortify$timepoint))){
+  print(timepoint_str)
+all_umap <- ggplot() + umap_theme() +
+        geom_point(data = all_fortify, aes(x = x, y = y, color = cell_subtype), size = .1, color = "gray") +
+        scale_colour_manual(name = "Epithelium", values = color_category_20, guide = guide_legend(override.aes = list(size=3), order = 1)) +
+        theme(aspect.ratio=1,
+              legend.position = "none") +
+        new_scale_color() +
+        geom_point(data = epi_fortify[epi_fortify$timepoint == timepoint_str, ], aes(x = x, y = y, color = "#d62728"), size = .15) +
+        scale_colour_manual(name = "Epithelium", values = "#d62728", guide = guide_legend(override.aes = list(size=3), order = 1)) +
+        new_scale_color() +
+        geom_point(data = endo_fortify[endo_fortify$timepoint == timepoint_str, ], aes(x = x, y = y, color = "#d62728"), size = .15) +
+        scale_colour_manual(name = "Endothelium", values = "#d62728", guide = guide_legend(override.aes = list(size=3), order = 2)) +
+        guides(colour = guide_legend(override.aes = list(size=3))) +
+        new_scale_color() +
+        geom_point(data = meso_fortify[meso_fortify$timepoint == timepoint_str, ], aes(x = x, y = y, color = "#d62728"), size = .15) +
+        scale_colour_manual(name = "Mesenchyme", values = "#d62728", guide = guide_legend(override.aes = list(size=3), order = 3)) +
+        guides(colour = guide_legend(override.aes = list(size=3))) +
+        labs(x = "UMAP_1", y = "UMAP_2") +
+        ggtitle(timepoint_str) +
+        theme(title = element_text(size = 20))
+#all_umap
+
+tiff(paste0("./figures/all/time_umap/",timepoint_str,"_umap.tiff"), width = 12, height = 12, unit = "cm", res = 600, compression = "lzw")
+print(all_umap)
+dev.off()
+}
+
+```
+
+## Identify marker genes in each cluster
+```{r}
+plan("multiprocess", workers = N_WORKERS)
+filename <- "./data/all_retransform_markers.rds"
+if (!file.exists(filename)) {
+  markers <- parallelFindAllMarkers(all_cells)
+  saveRDS(markers, filename)
+} else {
+  markers <- readRDS(filename)
+}
+```
+
+### Cluster 0
+```{r}
+markers[[0 + 1]][n_print,]
+```
+
+### Cluster 1
+```{r}
+markers[[1 + 1]][n_print,]
+```
+
+### Cluster 2
+```{r}
+markers[[2 + 1]][n_print,]
+```
+
+### Cluster 3
+```{r}
+markers[[3 + 1]][n_print,]
+```
+
+### Cluster 4
+```{r}
+markers[[4 + 1]][n_print,]
+```
+
+### Cluster 5
+```{r}
+markers[[5 + 1]][n_print,]
+```
+
+### Cluster 6
+```{r}
+markers[[6 + 1]][n_print,]
+```
+
+### Cluster 7
+```{r}
+markers[[7 + 1]][n_print,]
+```
+
+### Cluster 8
+```{r}
+markers[[8 + 1]][n_print,]
+```
+
+### Cluster 9
+```{r}
+markers[[9 + 1]][n_print,]
+```
+
+### Cluster 10
+```{r}
+markers[[10 + 1]][n_print,]
+```
+
+### Cluster 11
+```{r}
+markers[[11 + 1]][n_print,]
+```
+
+
+```{r}
+primordial_markers <- FindMarkers(all_cells, "Primordial", NULL, group.by = "cell_subtype", test.use = "MAST")
+primordial_markers[n_print,]
+```
+
+```{r}
+# UMAP:
+# All cells grayed out except E15 / another except P3.
+
+
+ggplot_data <- as.data.frame(Embeddings(all_cells, reduction = "umap"))
+ggplot_data$timepoint <- all_cells$timepoint
+ggplot_data$cell_subtype <- all_cells$cell_subtype
+ggplot_data$bulk_celltype <- all_cells$bulk_celltype
+
+
+ggdata_epi <- subset(ggplot_data, bulk_celltype == "Epithelium")
+ggdata_endo <- subset(ggplot_data, bulk_celltype == "Endothelium")
+ggdata_meso <- subset(ggplot_data, bulk_celltype == "Mesenchyme")
+ggdata_meso$cell_subtype[ggdata_meso$cell_subtype == "Matrix fibroblast"] <- "Adventitial fibroblast"
+
+
+ggdata_epi$cell_subtype <- ordered(as.factor(ggdata_epi$cell_subtype), c("Primordial", "Transitional", "AT1", "AT2", "Cilliated", "Secretory", "Neuroendocrine"))
+ggdata_endo$cell_subtype <- ordered(as.factor(ggdata_endo$cell_subtype), c("Arterial maEC", "Venous maEC", "miEC", "Car4+", "Proliferating", "Lymphatic"))
+# Note - the next few lines combines the prenatal Wnt2+ and the Prenatal Myofibroblasts
+ggmeso_subtype_factor <- as.factor(ggdata_meso$cell_subtype)
+levels(ggmeso_subtype_factor) <- levels(ggmeso_subtype_factor)[c(1:5,3,9,8:9)]
+ggdata_meso$cell_subtype <- ordered(ggmeso_subtype_factor, c("Wnt2+", "Myofibroblast", "Adventitial fibroblast", "Pericyte", "Mesothelium", "Smooth muscle", "Neuron"))
+
+
+ggdata_meso$cell_subtype <- renameFactorIdent(ggdata_meso$cell_subtype, "Wnt2+", "*Wnt2*+ FB")
+
+ggdata_epi <- ggdata_epi[ggdata_epi$cell_subtype %in% c("Primordial", "Transitional"),]
+epi_colors <- c("#1f77b4", "#aec7e8", "#2ca02c", "#98df8a")
+ggdata_endo <- ggdata_endo[ggdata_endo$cell_subtype %in% c("miEC", "Car4+"),]
+endo_colors <- c("#ff7f0e", "#ffbb78")
+ggdata_meso <- ggdata_meso[ggdata_meso$cell_subtype %in% c("Myofibroblast", "*Wnt2*+ FB"),]
+meso_colors <- c("#d62728", "#ff9896")
+
+
+
+e15_highlight <- ggplot() +
+        geom_point(data = ggplot_data[!(ggplot_data$timepoint %in% c("E15")),],
+                   aes(x = UMAP_1, y = UMAP_2), size = 0.1, alpha = 0.2, color = "gray") +
+        umap_theme() +
+        scale_colour_manual(name = "Timepoint", values = color_scanpy_default) +
+        theme(aspect.ratio=1) +
+        theme(legend.text=element_markdown(size=14),
+              legend.title=element_text(size=14)) +
+        guides(colour = guide_legend(override.aes = list(size=3))) +
+        new_scale_color() +
+
+        geom_point(data = ggdata_epi[(ggdata_epi$timepoint %in% c("E15")),], aes(x = UMAP_1, y = UMAP_2, color = cell_subtype), size = .1) +
+        scale_colour_manual(name = "Epithelium", values = epi_colors, guide = guide_legend(override.aes = list(size=3), order = 1)) +
+        theme(aspect.ratio=1,
+              legend.text=element_markdown(size=14),
+              legend.title=element_text(size=14)) +
+        new_scale_color() +
+
+        geom_point(data = ggdata_endo[(ggdata_endo$timepoint %in% c("E15")),], aes(x = UMAP_1, y = UMAP_2, color = cell_subtype), size = .1) +
+        scale_colour_manual(name = "Endothelium", values = endo_colors, guide = guide_legend(override.aes = list(size=3), order = 2)) +
+        theme(legend.text=element_markdown(size=14),
+              legend.title=element_text(size=14)) +
+        guides(colour = guide_legend(override.aes = list(size=3))) +
+        new_scale_color() +
+
+        geom_point(data = ggdata_meso[(ggdata_endo$timepoint %in% c("E15")),], aes(x = UMAP_1, y = UMAP_2, color = cell_subtype), size = .1) +
+        scale_colour_manual(name = "Mesenchyme", values = meso_colors, guide = guide_legend(override.aes = list(size=3), order = 3)) +
+        theme(legend.text=element_markdown(size=14),
+              legend.title=element_text(size=14)) +
+        guides(colour = guide_legend(override.aes = list(size=3))) +
+        labs(x = "UMAP_1", y = "UMAP_2") +
+
+        ggtitle("E15 cells")
+
+e15_highlight
+
+pdf("./figures/all/e15_highlight_UMAP_revised.pdf", width = 9, height = 7)
+e15_highlight
+dev.off()
+
+```
+
+
+```{r}
+
+
+ggdata_epi <- subset(ggplot_data, bulk_celltype == "Epithelium")
+ggdata_endo <- subset(ggplot_data, bulk_celltype == "Endothelium")
+ggdata_meso <- subset(ggplot_data, bulk_celltype == "Mesenchyme")
+ggdata_meso$cell_subtype[ggdata_meso$cell_subtype == "Matrix fibroblast"] <- "Adventitial fibroblast"
+
+
+ggdata_epi$cell_subtype <- ordered(as.factor(ggdata_epi$cell_subtype), c("Primordial", "Transitional", "Type I", "Type II", "Cilliated", "Secretory", "Neuroendocrine"))
+ggdata_endo$cell_subtype <- ordered(as.factor(ggdata_endo$cell_subtype), c("Arterial maEC", "Venous maEC", "miEC", "Car4+", "Proliferating", "Lymphatic"))
+# Note - the next few lines combines the prenatal Wnt2+ and the Prenatal Myofibroblasts
+ggmeso_subtype_factor <- as.factor(ggdata_meso$cell_subtype)
+levels(ggmeso_subtype_factor) <- levels(ggmeso_subtype_factor)[c(1:5,3,9,8:9)]
+ggdata_meso$cell_subtype <- ordered(ggmeso_subtype_factor, c("Wnt2+", "Myofibroblast", "Adventitial fibroblast", "Pericyte", "Mesothelium", "Smooth muscle", "Neuron"))
+
+
+
+ggdata_epi <- ggdata_epi[ggdata_epi$cell_subtype %in% c("Primordial", "Transitional", "Type I", "Type II"),]
+epi_colors <- c("#1f77b4", "#aec7e8", "#2ca02c", "#98df8a")
+ggdata_endo <- ggdata_endo[ggdata_endo$cell_subtype %in% c("miEC", "Car4+"),]
+endo_colors <- c("#ff7f0e", "#ffbb78")
+ggdata_meso <- ggdata_meso[ggdata_meso$cell_subtype %in% c("Myofibroblast", "*Wnt2*+ FB"),]
+meso_colors <- c("#d62728", "#ff9896")
+
+ggdata_endo$cell_subtype <- renameFactorIdent(ggdata_endo$cell_subtype, "Car4+", "*Car4*+")
+ggdata_epi$cell_subtype <- renameFactorIdent(ggdata_epi$cell_subtype, "Type I", "AT1")
+ggdata_epi$cell_subtype <- renameFactorIdent(ggdata_epi$cell_subtype, "Type II", "AT2")
+
+p3_highlight <- ggplot() +
+        geom_point(data = ggplot_data[!(ggplot_data$timepoint %in% c("P3")),],
+                   aes(x = UMAP_1, y = UMAP_2), size = 0.1, alpha = 0.2, color = "gray") +
+        umap_theme() +
+        theme(aspect.ratio=1) +
+        theme(legend.text=element_markdown(size=14),
+              legend.title=element_text(size=14)) +
+        guides(colour = guide_legend(override.aes = list(size=3))) +
+        new_scale_color() +
+
+        geom_point(data = ggdata_epi[(ggdata_epi$timepoint %in% c("P3")),], aes(x = UMAP_1, y = UMAP_2, color = cell_subtype), size = .1) +
+        scale_colour_manual(name = "Epithelium", values = epi_colors, guide = guide_legend(override.aes = list(size=3), order = 1)) +
+        theme(aspect.ratio=1,
+              legend.text=element_markdown(size=14),
+              legend.title=element_text(size=14)) +
+        new_scale_color() +
+
+        geom_point(data = ggdata_endo[(ggdata_endo$timepoint %in% c("P3")),], aes(x = UMAP_1, y = UMAP_2, color = cell_subtype), size = .1) +
+        scale_colour_manual(name = "Endothelium", values = endo_colors, guide = guide_legend(override.aes = list(size=3), order = 2)) +
+        theme(legend.text=element_markdown(size=14),
+              legend.title=element_text(size=14)) +
+        guides(colour = guide_legend(override.aes = list(size=3))) +
+        new_scale_color() +
+
+        geom_point(data = ggdata_meso[(ggdata_endo$timepoint %in% c("P3")),], aes(x = UMAP_1, y = UMAP_2, color = cell_subtype), size = .1) +
+        scale_colour_manual(name = "Mesenchyme", values = meso_colors, guide = guide_legend(override.aes = list(size=3), order = 3)) +
+        theme(legend.text=element_markdown(size=14),
+              legend.title=element_text(size=14)) +
+        guides(colour = guide_legend(override.aes = list(size=3))) +
+        labs(x = "UMAP_1", y = "UMAP_2") +
+
+        ggtitle("P3 cells")
+
+p3_highlight
+a <- 2
+
+pdf("./figures/all/p3_highlight_UMAP_revised.pdf", width = 9, height = 7)
+p3_highlight
+dev.off()
+```
+
+# Create a UMAP by time
+```{r}
+all_umap_bytime <- ggplot() + umap_theme() +
+        geom_point(data = all_cells, aes(x = x, y = y, color = timepoint), size = .1) +
+        scale_colour_manual(name = "Timepoint", values = color_category_20, guide = guide_legend(override.aes = list(size=3), order = 1)) +
+        theme(aspect.ratio=1,
+              legend.text=element_text(size=14),
+              legend.title=element_text(size=14))+
+        xlab("UMAP_1") +
+        ylab("UMAP_2")
+
+#new_scale_color() +
+#  stat_ellipse(data = all_fortify, aes(x = x, y = y, color = bulk_celltype), type = "norm", level = 0.99) +
+#  scale_color_manual(name = "Cell type", values = color_scanpy_default)
+all_umap_bytime
+
+pdf("./figures/all/UMAP_time.pdf", width = 9, height = 7)
+all_umap_bytime
+dev.off()
+```
+
+```{r}
+all_cells$leiden <- Idents(all_cells)
+Idents(all_cells) <- all_cells$cell_subtype
+Idents(all_cells) <- renameFactorIdent(Idents(all_cells), "Neuron", "Other")
+Idents(all_cells) <- renameFactorIdent(Idents(all_cells), "Wnt2+", "*Wnt2*+ FB")
+Idents(all_cells) <- renameFactorIdent(Idents(all_cells), "Proliferating Wnt2+", "Proliferating *Wnt2*+ FB")
+Idents(all_cells) <- renameFactorIdent(Idents(all_cells), "Proliferating Myofibroblast", "Proliferating myofibroblast")
+Idents(all_cells) <- renameFactorIdent(Idents(all_cells), "Type I", "AT1")
+Idents(all_cells) <- renameFactorIdent(Idents(all_cells), "Type II", "AT2")
+Idents(all_cells) <- renameFactorIdent(Idents(all_cells), "Car4+", "*Car4*+")
+Idents(all_cells) <- renameFactorIdent(Idents(all_cells), "Proliferating", "Proliferating miEC")
+```
+# Create a giant heatmap of every cluster..
+```{r}
+marker_genes <- c("Epcam", "Foxj1", "Scgb1a1", "Scgb3a2", "Abca3", "Hopx",
+                  "Pecam1", "Ccl21a", "Vwf", "Nrg1", "Plvap", "Car4",
+                  "Col1a1", "Dcn", "Lum", "Acta2", "Wnt2", "Wnt5a", "Lgr6", "Pdgfra", "Pdgfrb", "Cspg4", "Wt1",
+                  "Mki67", "Tnnt2", "Mpz")
+
+
+
+
+heatmap_df <- make_heatmap_df(all_cells, marker_genes, sort_clusters = FALSE)
+
+heatmap_df <- heatmap_df %>% group_by(gene,cluster) %>% summarise(expression_mean=mean(expression))
+
+# For brackets and text (see ./helper_functions/brackets.R)
+n_clusters <- max(as.numeric(Idents(all_cells)))
+text_vec <- list(c("Epithelial", 6),
+                 c("Endothelial", 6),
+                 c("Mesenchymal", 11),
+                 c("Other", 3)
+)
+
+all_heatmap <- ggplot(heatmap_df, aes(x = gene, y = cluster, fill = expression_mean)) +
+        geom_tile(color = "white", size = 0.1) +
+        scale_fill_distiller(palette = "Blues", direction = 1, trans = "sqrt", name = "Expression") +
+        coord_fixed(ratio = 1, xlim = NULL, ylim = c(1,n_clusters), expand = TRUE, clip = "off") +
+        theme(plot.margin=unit(c(1.5,1,1,1),"cm")) +
+        addBrackets(text_vec) +
+        addText(text_vec, n_clusters) +
+        theme(panel.background = element_rect(fill = "white", colour = "black", size = 0),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              axis.title.x  = element_blank(),
+              axis.text.x = element_text(face = "italic", size = 10),
+              axis.text.y = element_markdown(size = 10)
+              ) +
+        labs(y = "Cluster") +
+        theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+all_heatmap
+
+pdf("./figures/all/heatmap_allgenes.pdf", width = 9, height = 7)
+all_heatmap
+dev.off()
+
+```
+
+# Elastin Heatmaps!!
+
+
+```{r}
+
+Idents(all_cells) <- all_cells$cell_subtype
+marker_genes <- c('Eln', 'Fbn1', 'Fbn2', 'Fbln1', 'Fbln2', 'Fbln3', 'Fbln4', 'Fbln5',
+                  'Emilin1', 'Magp1', 'Magp2', 'Ltbp1', 'Ltbp2', 'Ltbp3', 'Ltbp4', 'Lox',
+                  'Loxl1', 'Loxl2', 'Loxl3', 'Loxl4')
+
+# Absent: Fbln3, Fbln4, Magp1, Magp2
+# todo: Make these zeros
+
+heatmap_df <- make_heatmap_df(subset(all_cells, idents = c("Prenatal Myofibroblast", "Myofibroblast")), marker_genes, sort_clusters = FALSE)
+
+heatmap_df <- heatmap_df %>% group_by(gene,time) %>% summarise(expression_mean=mean(expression))
+
+addBackZeros <- function(df, markers){
+  out <- do.call(rbind, lapply(markers[!(markers %in% unique(df$gene))], function(x){
+    t(do.call(cbind, list(sapply(unique(levels(df$time)), function(y){
+      c(x, y, 0)
+    }))))
+  }))
+  colnames(out) <- colnames(df)
+  out <- as.data.frame(out)
+  out$expression_mean <- as.double(out$expression_mean)
+  out$time <- ordered(out$time, levels(df$time))
+  rbind(df, out)
+}
+
+n_clusters <- max(as.numeric(Idents(subset(all_cells, idents = c("Prenatal Myofibroblast", "Myofibroblast")))))
+#grid.brackets()
+# Look in to grid.brackets to customize the brackets. Can prob make a function for this.
+myo_matrix_plot <- ggplot(addBackZeros(heatmap_df, marker_genes), aes(x = gene, y = time, fill = expression_mean)) +
+        geom_tile(color = "white", size = 0.1) +
+        scale_fill_distiller(palette = "Blues", direction = 1, trans = "sqrt", name = "Expression", limits = c(0,5)) +
+        #ggtitle("Expression") +
+        coord_fixed(ratio = 0.6) +
+        theme(panel.background = element_rect(fill = "white"),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              axis.title.x  = element_blank(),
+              legend.text=element_text(size=14),
+              legend.title=element_text(size=14),
+              axis.text.x  = element_text(size=14, angle = 45, vjust = 1, hjust=1, face = "italic"),
+              axis.text.y = element_text(size=14),
+              axis.title.y = element_text(size=14),
+              legend.key.size = unit(0.8, "cm"),
+              plot.title = element_text(size=14)
+        ) +
+        labs(y = "Timepoint") +
+        ggtitle("Expression patterns in Myofibroblasts")
+
+
+myo_matrix_plot
+
+pdf("./figures/meso/myo_matrix.pdf", width = 12, height = 4)
+myo_matrix_plot
+dev.off()
+```
+
+```{r}
+#marker_genes <- c('Eln', 'Fbn1', 'Fbn2', 'Fbln1', 'Fbln2', 'Fbln3', 'Fbln4', 'Fbln5',
+#                  'Emilin1', 'Magp1', 'Magp2', 'Ltbp1', 'Ltbp2', 'Ltbp3', 'Ltbp4', 'Lox',
+#                  'Loxl1', 'Loxl2', 'Loxl3', 'Loxl4')
+
+marker_genes <- c('Eln', 'Fbln5',
+                  'Col4a1', 'Col4a2', 'Col4a3', 'Col4a4', 'Col4a5', 'Col4a6', 'Hspg2', 'Lama1', 'Lama3', 'Lama5', 'Lamb1', 'Lamb2', 'Lamb3', 'Lamc1', 'Lamc2')
+
+# Absent: Fbln3, Fbln4, Magp1, Magp2
+# todo: Make these zeros
+
+heatmap_df <- make_heatmap_df(subset(subset(all_cells, idents = "Type I"), timepoint %in% c("E12", "E15"), invert = TRUE), marker_genes, sort_clusters = FALSE)
+
+heatmap_df <- heatmap_df %>% group_by(gene,time) %>% summarise(expression_mean=mean(expression))
+
+addBackZeros <- function(df, markers){
+  out <- do.call(rbind, lapply(markers[!(markers %in% unique(df$gene))], function(x){
+    t(do.call(cbind, list(sapply(unique(levels(df$time)), function(y){
+      c(x, y, 0)
+    }))))
+  }))
+  colnames(out) <- colnames(df)
+  out <- as.data.frame(out)
+  out$expression_mean <- as.double(out$expression_mean)
+  out$time <- ordered(out$time, levels(df$time))
+  rbind(df, out)
+}
+
+n_clusters <- max(as.numeric(Idents(subset(all_cells, idents = "Type I"))))
+#grid.brackets()
+# Look in to grid.brackets to customize the brackets. Can prob make a function for this.
+#head(heatmap_df)
+at1_matrix_plot <- ggplot(heatmap_df, aes(x = gene, y = time, fill = expression_mean)) +
+        geom_tile(color = "white", size = 0.05) +
+        scale_fill_distiller(palette = "Blues", direction = 1, trans = "sqrt", name = "Expression", limits = c(0,4)) +
+        #ggtitle("Expression") +
+        coord_fixed(ratio = 0.6) +
+        theme(panel.background = element_rect(fill = "white"),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              axis.title.x  = element_blank(),
+              legend.text=element_text(size=14),
+              legend.title=element_text(size=14),
+              axis.text.x  = element_text(size=14, angle = 45, vjust = 1, hjust=1, face = "italic"),
+              axis.text.y = element_text(size=14),
+              axis.title.y = element_text(size=14),
+              legend.key.size = unit(0.8, "cm"),
+              plot.title = element_text(size=14)
+        ) +
+        labs(y = "Timepoint") +
+        ggtitle("Expression patterns in AT1 cells")
+
+
+at1_matrix_plot
+
+pdf("./figures/epi/AT1_matrix.pdf", width = 12, height = 4)
+at1_matrix_plot
+dev.off()
+
+```
+
+```{r}
+#marker_genes <- c('Eln', 'Fbn1', 'Fbn2', 'Fbln1', 'Fbln2', 'Fbln3', 'Fbln4', 'Fbln5',
+#                  'Emilin1', 'Magp1', 'Magp2', 'Ltbp1', 'Ltbp2', 'Ltbp3', 'Ltbp4', 'Lox',
+#                  'Loxl1', 'Loxl2', 'Loxl3', 'Loxl4')
+
+marker_genes <- c('Eln', 'Fbln5',
+                  'Col4a1', 'Col4a2', 'Col4a3', 'Col4a4', 'Col4a5', 'Col4a6', 'Hspg2', 'Lama1', 'Lama3', 'Lama5', 'Lamb1', 'Lamb2', 'Lamb3', 'Lamc1', 'Lamc2',
+                  'Vegfa', 'Pdgfa', 'Ctgf', 'F3', 'Tgfb1', 'Tgfb2')
+
+# Absent: Fbln3, Fbln4, Magp1, Magp2
+# todo: Make these zeros
+
+heatmap_df <- make_heatmap_df(all_cells, marker_genes, sort_clusters = FALSE)
+
+heatmap_df <- heatmap_df %>% group_by(gene,cluster) %>% summarise(expression_mean=mean(expression),
+                                                                  frac_pos=(sum(expression > 0) * 100 / length(expression)))
+
+# For brackets and text (see ./helper_functions/brackets.R)
+
+all_mat_dot_heatmap <- ggplot(heatmap_df, aes(x = gene, y = cluster, color = expression_mean, size = frac_pos)) +
+        geom_point(shape = 16) +
+        scale_size(range = c(1, 7), name = "% expressing") +
+        scale_color_distiller(palette = "Blues", direction = 1, trans = "sqrt", name = "Expression", limits = c(0,5)) +
+        coord_fixed(ratio = 1, xlim = NULL, ylim = c(1,n_clusters), expand = TRUE, clip = "off") +
+        theme(plot.margin=unit(c(1.5,1,1,1),"cm")) +
+        theme(panel.background = element_rect(fill = "white", colour = "black", size = 0),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              axis.title.x  = element_blank(),
+              axis.text.x = element_text(face = "italic", size = 10),
+              axis.text.y = element_markdown(size = 10)
+        ) +
+        labs(y = "Cluster") +
+        theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+all_mat_dot_heatmap
+
+pdf("./figures/all/dotmap_matrix_all.pdf", width = 9, height = 7)
+all_mat_dot_heatmap
+dev.off()
+
+```
+
+```{r}
+
+timepoint_factor <- factor(subset(all_cells, bulk_celltype == "Mesenchyme")$timepoint)
+timepoint_ordered <- ordered(timepoint_factor, levels = unique(all_cells$timepoint))
+
+cell_ident_df <- data.frame(timepoint = timepoint_ordered,
+                            cluster = subset(all_cells, bulk_celltype == "Mesenchyme")$cell_subtype)
+
+prop_celltypes <- round(prop.table(table(cell_ident_df$timepoint, cell_ident_df$cluster), 1) * 100, 1)
+
+
+meso_melt_prop_celltypes <- melt(prop_celltypes)
+
+#unique(meso_melt_prop_celltypes$Var2)
+
+levels(meso_melt_prop_celltypes$Var2)[levels(meso_melt_prop_celltypes$Var2) == "Wnt2+"] <- "*Wnt2*+ FB"
+levels(meso_melt_prop_celltypes$Var2)[levels(meso_melt_prop_celltypes$Var2) == "Proliferating Wnt2+"] <- "Proliferating *Wnt2*+ FB"
+levels(meso_melt_prop_celltypes$Var2)[levels(meso_melt_prop_celltypes$Var2) == "Neuron"] <- "Other"
+unique(meso_melt_prop_celltypes$Var2)
+
+meso_melt_prop_celltypes$Var2 <- ordered(as.factor(meso_melt_prop_celltypes$Var2), c("Proliferating *Wnt2*+ FB", "*Wnt2*+ FB", "Proliferating Myofibroblast", "Myofibroblast", "Adventitial fibroblast", "Pericyte", "Mesothelium", "Smooth muscle", "Other"))
+
+print(prop_celltypes)
+#colnames(prop_celltypes)[1:2] <- c("Prenatal *Wnt2*+", "*Wnt2*+")
+meso_mountain <- ggplot(meso_melt_prop_celltypes, aes(y=value, x=Var1)) +
+        geom_area(aes(color = as.factor(Var2), group=as.factor(Var2), fill = as.factor(Var2)), alpha = 1) +
+        xlab("Day") +
+        ylab("% of cells") +
+        labs(fill = "Cluster", color = "Cluster", group = "Cluster") +
+        scale_colour_manual(aesthetics = c("color", "fill"), values= color_category_20) +
+        theme(legend.key = element_blank(),
+              legend.text = element_markdown(size=14),
+              legend.title = element_text(size=14),
+              axis.text.x  = element_text(size=14),
+              axis.text.y = element_text(size=14),
+              axis.title.x = element_text(size=14),
+              axis.title.y = element_text(size=14),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.background = element_rect(fill = "white"),
+              aspect.ratio = 0.9,
+              legend.justification = "left"
+        ) +
+        scale_x_discrete(expand = c(.01, .01)) +
+        scale_y_continuous(expand = c(.01,.01)) +
+        coord_fixed(0.05)
+
+
+meso_mountain
+
+
+pdf("./figures/all/meso_mountain.pdf", width = 9, height = 4)
+meso_mountain
+dev.off()
+```
+```{r}
+
+timepoint_factor <- factor(subset(all_cells, bulk_celltype == "Epithelium")$timepoint)
+timepoint_ordered <- ordered(timepoint_factor, levels = unique(all_cells$timepoint))
+
+cell_ident_df <- data.frame(timepoint = timepoint_ordered,
+                            cluster = subset(all_cells, bulk_celltype == "Epithelium")$cell_subtype)
+
+prop_celltypes <- round(prop.table(table(cell_ident_df$timepoint, cell_ident_df$cluster), 1) * 100, 1)
+
+
+epi_melt_prop_celltypes <- melt(prop_celltypes)
+
+unique(epi_melt_prop_celltypes$Var2)
+
+levels(epi_melt_prop_celltypes$Var2)[levels(epi_melt_prop_celltypes$Var2) == "Type I"] <- "AT1"
+levels(epi_melt_prop_celltypes$Var2)[levels(epi_melt_prop_celltypes$Var2) == "Type II"] <- "AT2"
+unique(epi_melt_prop_celltypes$Var2)
+
+epi_melt_prop_celltypes$Var2 <- ordered(as.factor(epi_melt_prop_celltypes$Var2), c("Primordial", "Transitional", "AT1", "AT2", "Cilliated", "Secretory", "Neuroendocrine"))
+
+print(prop_celltypes)
+#colnames(prop_celltypes)[1:2] <- c("Prenatal *Wnt2*+", "*Wnt2*+")
+epi_mountain <- ggplot(epi_melt_prop_celltypes, aes(y=value, x=Var1)) +
+        geom_area(aes(color = as.factor(Var2), group=as.factor(Var2), fill = as.factor(Var2)), alpha = 1) +
+        xlab("Day") +
+        ylab("% of cells") +
+        labs(fill = "Cluster", color = "Cluster", group = "Cluster") +
+        scale_colour_manual(aesthetics = c("color", "fill"), values= color_category_20) +
+        theme(legend.key = element_blank(),
+              legend.text = element_markdown(size=14),
+              legend.title = element_text(size=14),
+              axis.text.x  = element_text(size=14),
+              axis.text.y = element_text(size=14),
+              axis.title.x = element_text(size=14),
+              axis.title.y = element_text(size=14),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.background = element_rect(fill = "white"),
+              aspect.ratio = 0.9,
+              legend.justification = "left"
+        ) +
+        scale_x_discrete(expand = c(.01, .01)) +
+        scale_y_continuous(expand = c(.01,.01)) +
+        coord_fixed(0.05)
+
+
+epi_mountain
+
+
+pdf("./figures/all/epi_mountain.pdf", width = 9, height = 4)
+epi_mountain
+dev.off()
+```
+```{r}
+
+timepoint_factor <- factor(subset(all_cells, bulk_celltype == "Endothelium")$timepoint)
+timepoint_ordered <- ordered(timepoint_factor, levels = unique(all_cells$timepoint))
+
+cell_ident_df <- data.frame(timepoint = timepoint_ordered,
+                            cluster = subset(all_cells, bulk_celltype == "Endothelium")$cell_subtype)
+
+prop_celltypes <- round(prop.table(table(cell_ident_df$timepoint, cell_ident_df$cluster), 1) * 100, 1)
+
+
+endo_melt_prop_celltypes <- melt(prop_celltypes)
+
+unique(endo_melt_prop_celltypes$Var2)
+
+levels(endo_melt_prop_celltypes$Var2)[levels(endo_melt_prop_celltypes$Var2) == "Car4+"] <- "*Car4*+ EC"
+levels(endo_melt_prop_celltypes$Var2)[levels(endo_melt_prop_celltypes$Var2) == "Proliferating"] <- "Proliferating miEC"
+unique(endo_melt_prop_celltypes$Var2)
+
+endo_melt_prop_celltypes$Var2 <- ordered(as.factor(endo_melt_prop_celltypes$Var2), c("Arterial maEC", "Venous maEC", "miEC", "*Car4*+ EC", "Proliferating miEC", "Lymphatic"))
+
+print(prop_celltypes)
+#colnames(prop_celltypes)[1:2] <- c("Prenatal *Wnt2*+", "*Wnt2*+")
+endo_mountain <- ggplot(endo_melt_prop_celltypes, aes(y=value, x=Var1)) +
+        geom_area(aes(color = as.factor(Var2), group=as.factor(Var2), fill = as.factor(Var2)), alpha = 1) +
+        xlab("Day") +
+        ylab("% of cells") +
+        labs(fill = "Cluster", color = "Cluster", group = "Cluster") +
+        scale_colour_manual(aesthetics = c("color", "fill"), values= color_category_20) +
+        theme(legend.key = element_blank(),
+              legend.text = element_markdown(size=14),
+              legend.title = element_text(size=14),
+              axis.text.x  = element_text(size=14),
+              axis.text.y = element_text(size=14),
+              axis.title.x = element_text(size=14),
+              axis.title.y = element_text(size=14),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.background = element_rect(fill = "white"),
+              aspect.ratio = 0.9
+        ) +
+        scale_x_discrete(expand = c(.01, .01)) +
+        scale_y_continuous(expand = c(.01,.01)) +
+        coord_fixed(0.05)
+
+
+endo_mountain
+
+
+pdf("./figures/all/endo_mountain.pdf", width = 9, height = 4)
+endo_mountain
+dev.off()
+```
+
+```{r}
+pdf("./figures/all/all_mountains.pdf", width = 8, height = 12)
+epi_mountain + endo_mountain + meso_mountain + plot_layout(ncol = 1, nrow = 3) & theme(legend.justification = "left", plot.margin = unit(c(5.5,5.5,35,5.5), "pt"))
+dev.off()
+
+```
