@@ -12,7 +12,6 @@
 
 # Output figures
 *.ai
-*.png
 *.pdf
 *.xlsx
 *.iml
