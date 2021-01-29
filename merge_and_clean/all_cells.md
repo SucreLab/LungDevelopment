@@ -72,7 +72,7 @@ p_cluster <- DimPlot(all_cells) + umap_theme() +
 p_cluster
 ```
 
-![](./merge_and_clean/all_cells_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
+![](./all_cells_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
 
 ``` r
 p_time <- DimPlot(all_cells, group.by = "timepoint") + umap_theme() +
@@ -137,7 +137,7 @@ all_umap
 
     ## Warning: Removed 3622 rows containing missing values (geom_point).
 
-![](./merge_and_clean/all_cells_files/figure-gfm/unnamed-chunk-4-2.png)<!-- -->
+![](./all_cells_files/figure-gfm/unnamed-chunk-4-2.png)<!-- -->
 
 ``` r
 saveTiff("./figures/all/UMAP_time.tiff", p_time,
@@ -626,7 +626,7 @@ e15_highlight <- ggplot() +
 e15_highlight
 ```
 
-![](./merge_and_clean/all_cells_files/figure-gfm/unnamed-chunk-19-1.png)<!-- -->
+![](./all_cells_files/figure-gfm/unnamed-chunk-19-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/all/e15_highlight_UMAP_revised.tiff", e15_highlight,
@@ -698,7 +698,7 @@ p3_highlight <- ggplot() +
 p3_highlight
 ```
 
-![](./merge_and_clean/all_cells_files/figure-gfm/unnamed-chunk-20-1.png)<!-- -->
+![](./all_cells_files/figure-gfm/unnamed-chunk-20-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/all/p3_highlight_UMAP_revised.tiff", p3_highlight,
@@ -725,7 +725,7 @@ all_umap_bytime <- ggplot() + umap_theme() +
 all_umap_bytime
 ```
 
-![](./merge_and_clean/all_cells_files/figure-gfm/unnamed-chunk-21-1.png)<!-- -->
+![](./all_cells_files/figure-gfm/unnamed-chunk-21-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/all/p3_highlight_UMAP_revised.tiff", all_umap_bytime,
@@ -792,7 +792,7 @@ all_heatmap <- ggplot(heatmap_df, aes(x = gene, y = cluster, fill = expression_m
 all_heatmap
 ```
 
-![](./merge_and_clean/all_cells_files/figure-gfm/unnamed-chunk-23-1.png)<!-- -->
+![](./all_cells_files/figure-gfm/unnamed-chunk-23-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/all/heatmap_allgenes.tiff", all_heatmap,
@@ -865,7 +865,7 @@ myo_matrix_plot <- ggplot(addBackZeros(heatmap_df, marker_genes), aes(x = gene, 
 myo_matrix_plot
 ```
 
-![](./merge_and_clean/all_cells_files/figure-gfm/unnamed-chunk-24-1.png)<!-- -->
+![](./all_cells_files/figure-gfm/unnamed-chunk-24-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/meso/myo_matrix.tiff", myo_matrix_plot,
@@ -934,7 +934,7 @@ at1_matrix_plot <- ggplot(heatmap_df, aes(x = gene, y = time, fill = expression_
 at1_matrix_plot
 ```
 
-![](./merge_and_clean/all_cells_files/figure-gfm/unnamed-chunk-25-1.png)<!-- -->
+![](./all_cells_files/figure-gfm/unnamed-chunk-25-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/epi/AT1_matrix.tiff", at1_matrix_plot,
@@ -983,7 +983,7 @@ all_mat_dot_heatmap <- ggplot(heatmap_df, aes(x = gene, y = cluster, color = exp
 all_mat_dot_heatmap
 ```
 
-![](./merge_and_clean/all_cells_files/figure-gfm/unnamed-chunk-26-1.png)<!-- -->
+![](./all_cells_files/figure-gfm/unnamed-chunk-26-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/all/dotmap_matrix_all.tiff", all_mat_dot_heatmap,
@@ -1073,7 +1073,7 @@ meso_mountain <- ggplot(meso_melt_prop_celltypes, aes(y=value, x=Var1)) +
 meso_mountain
 ```
 
-![](./merge_and_clean/all_cells_files/figure-gfm/unnamed-chunk-27-1.png)<!-- -->
+![](./all_cells_files/figure-gfm/unnamed-chunk-27-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/all/meso_mountain.tiff", meso_mountain,
@@ -1157,7 +1157,7 @@ epi_mountain <- ggplot(epi_melt_prop_celltypes, aes(y=value, x=Var1)) +
 epi_mountain
 ```
 
-![](./merge_and_clean/all_cells_files/figure-gfm/unnamed-chunk-28-1.png)<!-- -->
+![](./all_cells_files/figure-gfm/unnamed-chunk-28-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/all/epi_mountain.tiff", epi_mountain,
@@ -1240,7 +1240,7 @@ endo_mountain <- ggplot(endo_melt_prop_celltypes, aes(y=value, x=Var1)) +
 endo_mountain
 ```
 
-![](./merge_and_clean/all_cells_files/figure-gfm/unnamed-chunk-29-1.png)<!-- -->
+![](./all_cells_files/figure-gfm/unnamed-chunk-29-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/all/endo_mountain.tiff", endo_mountain,

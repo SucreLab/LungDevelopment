@@ -69,7 +69,7 @@ p_time <- DimPlot(endo, group.by = "timepoint") + umap_theme() +
 p_cluster + p_time + plot_annotation("Endothelium")
 ```
 
-![](./endothelium/all_endo_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
+![](./all_endo_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
 
 ## Identify marker genes in each cluster
 
@@ -314,7 +314,7 @@ endo_heatmap <- ggplot(heatmap_df, aes(x = gene, y = cluster, fill = expression_
 endo_heatmap
 ```
 
-![](./endothelium/all_endo_files/figure-gfm/unnamed-chunk-11-1.png)<!-- -->
+![](./all_endo_files/figure-gfm/unnamed-chunk-11-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/endo/supp_cluster_markers.tiff",
@@ -377,7 +377,7 @@ p_time <- DimPlot(endo_relabel, group.by = "timepoint") + umap_theme() +
 p_time + p_rename_cluster + plot_annotation("Endothelium", theme = theme(plot.title = element_text(size = 14)))
 ```
 
-![](./endothelium/all_endo_files/figure-gfm/unnamed-chunk-13-1.png)<!-- -->
+![](./all_endo_files/figure-gfm/unnamed-chunk-13-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/endo/umap.tiff",
@@ -610,7 +610,7 @@ endo_mountain <- ggplot(melt(prop_celltypes), aes(y=value, x=Var1)) +
 endo_mountain
 ```
 
-![](./endothelium/all_endo_files/figure-gfm/unnamed-chunk-21-1.png)<!-- -->
+![](./all_endo_files/figure-gfm/unnamed-chunk-21-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/endo/labeled_mountain.tiff",
@@ -640,7 +640,7 @@ car4_endo_plot <- FeaturePlot(endo_relabel, "Car4") +
 car4_endo_plot
 ```
 
-![](./endothelium/all_endo_files/figure-gfm/unnamed-chunk-22-1.png)<!-- -->
+![](./all_endo_files/figure-gfm/unnamed-chunk-22-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/endo/endo_car4_plot.tiff",
@@ -670,7 +670,7 @@ kdr_endo_plot <- FeaturePlot(endo_relabel, "Kdr", pt.size = 0.5) +
 kdr_endo_plot
 ```
 
-![](./endothelium/all_endo_files/figure-gfm/unnamed-chunk-23-1.png)<!-- -->
+![](./all_endo_files/figure-gfm/unnamed-chunk-23-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/endo/endo_kdr_plot.tiff",

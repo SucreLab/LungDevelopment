@@ -78,7 +78,7 @@ p_time <- DimPlot(epi, group.by = "timepoint") + umap_theme() +
 p_cluster + p_time + plot_annotation("Epithelium")
 ```
 
-![](./epithelium/all_epi_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
+![](./all_epi_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
 
 ## Identify marker genes in each cluster
 
@@ -338,7 +338,7 @@ epi_heatmap <- ggplot(heatmap_df, aes(x = gene, y = cluster, fill = expression_m
 epi_heatmap
 ```
 
-![](./epithelium/all_epi_files/figure-gfm/unnamed-chunk-12-1.png)<!-- -->
+![](./all_epi_files/figure-gfm/unnamed-chunk-12-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/epi/supp_cluster_markers.tiff", epi_heatmap,
@@ -387,7 +387,7 @@ p_time <- DimPlot(epi_relabel, group.by = "timepoint") + umap_theme() +
 p_time + p_rename_cluster + plot_annotation("Epithelium")
 ```
 
-![](./epithelium/all_epi_files/figure-gfm/unnamed-chunk-14-1.png)<!-- -->
+![](./all_epi_files/figure-gfm/unnamed-chunk-14-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/epi/epi_umap.tiff",
@@ -648,7 +648,7 @@ epi_mountain <- ggplot(melt(prop_celltypes) %>% arrange(Var2), aes(y=value, x=Va
 epi_mountain
 ```
 
-![](./epithelium/all_epi_files/figure-gfm/unnamed-chunk-23-1.png)<!-- -->
+![](./all_epi_files/figure-gfm/unnamed-chunk-23-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/epi/labeled_mountain.tiff",
@@ -670,7 +670,7 @@ FeaturePlot(epi, "Cdkn1a") +
     ## Scale for 'colour' is already present. Adding another scale for 'colour',
     ## which will replace the existing scale.
 
-![](./epithelium/all_epi_files/figure-gfm/unnamed-chunk-24-1.png)<!-- -->
+![](./all_epi_files/figure-gfm/unnamed-chunk-24-1.png)<!-- -->
 
 # Where is Cdkn1a expressed
 
@@ -692,7 +692,7 @@ cdkn1a_epi_plot <- FeaturePlot(epi, "Cdkn1a", pt.size = 0.6) +
 cdkn1a_epi_plot
 ```
 
-![](./epithelium/all_epi_files/figure-gfm/unnamed-chunk-25-1.png)<!-- -->
+![](./all_epi_files/figure-gfm/unnamed-chunk-25-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/epi/epi_cdkn1a.tiff",
@@ -746,7 +746,7 @@ transitional_heatmap <- ggplot(heatmap_df, aes(x = cluster, y = gene, color = ex
 transitional_heatmap
 ```
 
-![](./epithelium/all_epi_files/figure-gfm/unnamed-chunk-26-1.png)<!-- -->
+![](./all_epi_files/figure-gfm/unnamed-chunk-26-1.png)<!-- -->
 
 ``` r
 saveTiff("./figures/epi/transitional_cluster_expression.tiff",
