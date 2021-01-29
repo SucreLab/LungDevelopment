@@ -2,32 +2,15 @@
 title: "Plottings outputs of the cellrank analysis"
 author: Nick Negretti
 date: 12/07/20
-output:
-  html_document:
-    df_print: paged
-    toc: true
-    toc_float:
-      toc_collapsed: false
-    toc_depth: 3
-    number_sections: false
-    theme: lumen
+output: rmarkdown::github_document
 ---
 
-```{css toc-content, echo = FALSE}
-
-.main-container {
-    margin-left: 20px;
-}
-.tocify-extend-page {
-  height: 0 !important;
-}
-```
 # Plot cellrank outputs of the lung endothelium
 
 ## Load libraries and helper functions
 ```{r, results="hide", message = FALSE}
-setwd("~/postdoc/code/devo_scseq")
-
+setwd("~/postdoc/code/devo_scseq_github")
+source("./helper_functions/globals.R")
 source("./helper_functions/libraries.R")
 
 opts_knit$set(root.dir = getwd())
@@ -35,32 +18,13 @@ opts_knit$set(root.dir = getwd())
 source("./helper_functions/trajectory.R")
 source("./helper_functions/cluster.R")
 source("./helper_functions/colors.R")
-
 source("./helper_functions/brackets.R")
 source("./helper_functions/heatmaps.R")
-set.seed(42) # For reproducability
 
-N_WORKERS <- 3
-options(future.globals.maxSize=2048*1024^2)
 plan("multiprocess", workers = N_WORKERS)
 ```
 ## Load data from merge and clean pipeline
 ```{r}
-cellrank_out <- anndata::read_h5ad("./velocity/epi/only_metadata.h5ad")
-ggdata_epi <- data.frame(x = cellrank_out$obsm$X_umap[,1],
-                          y = cellrank_out$obsm$X_umap[,2],
-                          velocity_length = cellrank_out$obs$velocity_length,
-                          group = as.character(cellrank_out$obs$cell_subtype),
-                          timepoint = as.character(cellrank_out$obs$timepoint))
-
-cellrank_out <- anndata::read_h5ad("./velocity/endo/only_metadata.h5ad")
-ggdata_endo <- data.frame(x = cellrank_out$obsm$X_umap[,1],
-                          y = cellrank_out$obsm$X_umap[,2],
-                          velocity_length = cellrank_out$obs$velocity_length,
-                          group = as.character(cellrank_out$obs$cell_subtype),
-                          timepoint = as.character(cellrank_out$obs$timepoint))
-
-
 cellrank_out <- anndata::read_h5ad("./velocity/meso/with_latent_time.h5ad")
 ggdata_meso <- data.frame(x = cellrank_out$obsm$X_umap[,1],
                           y = cellrank_out$obsm$X_umap[,2],
@@ -174,10 +138,9 @@ tgfbi_exp
 
 
 ```{r}
-tiff("./figures/meso/plin2_tgfbi.tiff", width = 15, height = 4, units = "in", res = 600, compression = "lzw", bg = "transparent")
-plin2_exp + tgfbi_exp + plot_layout(ncol = 2, nrow = 1, guides = "collect")
-dev.off()
-
+saveTiff("./figures/meso/plin2_tgfbi.tiff",
+         plin2_exp + tgfbi_exp + plot_layout(ncol = 2, nrow = 1, guides = "collect"),
+         width = 15, height = 4)
 ```
 
 ```{r}
@@ -195,303 +158,12 @@ ggplot(ggdata_meso %>% arrange(velocity_length), aes(x = x, y = y, color = veloc
 
 ```
 
-```{r}
-ggdata_meso$macro_celltype <- "Mesenchyme"
-ggdata_endo$macro_celltype <- "Endothelium"
-ggdata_epi$macro_celltype <- "Epithelium"
-
-ggdata_all <- rbind(ggdata_meso, ggdata_endo, ggdata_epi)
-head(ggdata_all)
-
-dropLessThan10 <- function(x, pct_cutoff = 0.1){
-  keep_ids <- c()
-  tot_len <- nrow(x)
-
-  for (g in unique(x$group)){
-    for (t in unique(x$timepoint)){
-      ids <- which(x$group == g & x$timepoint == t)
-      if ((length(ids) / tot_len) * 100 > pct_cutoff){
-        keep_ids <- c(keep_ids, ids)
-      }
-    }
-  }
-  return(x[keep_ids,])
-}
-
-
-
-```
-
-```{r}
-ggdata_alveolar_epi <- ggdata_all[ggdata_all$group %in% c("Primordial",
-                                                          "Transitional",
-                                                          "Type II",
-                                                          "Type I"),]
-
-ggdata_alveolar_epi[ggdata_alveolar_epi$group == "Type II",'group'] <- "AT2"
-ggdata_alveolar_epi[ggdata_alveolar_epi$group == "Type I",'group'] <- "AT1"
-
-ggdata_alveolar_epi <- ggdata_alveolar_epi[!(ggdata_alveolar_epi$group == "Primordial" & ggdata_alveolar_epi$timepoint %in% c("P3", "P5", "P7", "P14")),]
-#ggdata_alveolar <- dropLessThan10(ggdata_alveolar, 0)
-ggdata_alveolar_epi$group <- ordered(as.factor(ggdata_alveolar_epi$group), c("Primordial", "Transitional", "AT1", "AT2"))
-
-alveolar_velocity_summary_epi <- ggdata_alveolar_epi %>% group_by(group,timepoint,macro_celltype) %>% summarise(mean_velocity=mean(velocity_length),
-                                                                                    median_velocity=median(velocity_length))
-alveolar_velocity_summary_epi$timepoint <- ordered(as.factor(alveolar_velocity_summary_epi$timepoint), c("E12", "E15", "E18", "P0", "P3", "P5", "P7", "P14"))
-
-
-rna_total_velocity <- ggplot(ggdata_alveolar_epi, aes(x = timepoint, y = velocity_length, fill = group)) +
-        geom_line(data = alveolar_velocity_summary_epi,
-                  aes(x = timepoint, y = median_velocity, group = group, color = group),
-                  position = position_dodge(width = 0.5)) +
-        geom_boxplot(width = 0.8, position = position_dodge2(preserve = "single", padding = 0.1), outlier.size = 0.2) +
-        prism_theme() +
-        theme(aspect.ratio = 0.8,
-              panel.grid.minor.y = element_blank(),
-              panel.grid.major.y = element_blank(),
-              panel.grid.minor.x = element_blank(),
-              panel.grid.major.x = element_blank(),
-              legend.text = element_text(size = 12),
-              legend.title = element_text(size = 12)
-        ) +
-        ylab("RNA velocity length") +
-        labs(fill = "Cell type") +
-        scale_color_manual(guide = "none",
-                           values = c("#1f77b4", # Dark blue
-                                      "#aec7e8", # Light blue
-                                      "#2ca02c", # Dark green
-                                      "#98df8a" # Light green
-                           )) +
-        scale_fill_manual(values = c("#1f77b4", # Dark blue
-                                     "#aec7e8", # Light blue
-                                     "#2ca02c", # Dark green
-                                     "#98df8a" # Light green
-        )) +
-        ylim(5,25)
-rna_total_velocity
-
-pdf("./figures/epi/epi_velocity_summary.pdf", width = 6, height = 4)
-rna_total_velocity
-dev.off()
-
-```
-
-
-```{r}
-
-ggdata_alveolar_endo <- ggdata_all[ggdata_all$group %in% c("Car4+",
-                                                           "miEC"),]
-ggdata_alveolar_endo[ggdata_alveolar_endo$group == "Car4+",'group'] <- "*Car4*+"
-#ggdata_alveolar <- dropLessThan10(ggdata_alveolar, 0.1)
-
-alveolar_velocity_summary_endo <- ggdata_alveolar_endo %>% group_by(group,timepoint,macro_celltype) %>% summarise(mean_velocity=mean(velocity_length),
-                                                                                         median_velocity=median(velocity_length))
-alveolar_velocity_summary_endo$timepoint <- ordered(as.factor(alveolar_velocity_summary_endo$timepoint), c("E12", "E15", "E18", "P0", "P3", "P5", "P7", "P14"))
-
-
-rna_total_velocity <- ggplot(ggdata_alveolar_endo, aes(x = timepoint, y = velocity_length, fill = group)) +
-        geom_line(data = alveolar_velocity_summary_endo,
-                  aes(x = timepoint, y = median_velocity, group = group, color = group),
-                  position = position_dodge(width = 0.5)) +
-        geom_boxplot(width = 0.5, position = position_dodge2(preserve = "single", padding = 0.1), outlier.size = 0.2) +
-        prism_theme() +
-        theme(aspect.ratio = 0.8,
-              panel.grid.minor.y = element_blank(),
-              panel.grid.major.y = element_blank(),
-              panel.grid.minor.x = element_blank(),
-              panel.grid.major.x = element_blank(),
-              legend.text = element_markdown(size = 12),
-              legend.title = element_text(size = 12)
-        ) +
-        ylab("RNA velocity length") +
-        labs(fill = "Cell type") +
-        scale_color_manual(guide = "none",
-                     values = c("#ff7f0e", # Light orange
-                                "#ffbb78" # Dark orange
-                     )) +
-        scale_fill_manual(values = c("#ff7f0e", # Light orange
-                                     "#ffbb78" # Dark orange
-        )) +
-        ylim(5,25)
-rna_total_velocity
-
-pdf("./figures/endo/endo_velocity_summary.pdf", width = 6, height = 4)
-rna_total_velocity
-dev.off()
-
-```
-
-
-```{r}
-ggdata_all[ggdata_all$group == "Prenatal Myofibroblast",'group'] <- "Myofibroblast"
-ggdata_all[ggdata_all$group == "Prenatal Wnt2+",'group'] <- "*Wnt2*+ FB"
-
-ggdata_alveolar_meso <- ggdata_all[ggdata_all$group %in% c("Myofibroblast",
-                                                      "*Wnt2*+ FB"),]
-
-#ggdata_alveolar <- dropLessThan10(ggdata_alveolar, 0.1)
-
-alveolar_velocity_summary_meso <- ggdata_alveolar_meso %>% group_by(group,timepoint,macro_celltype) %>% summarise(mean_velocity=mean(velocity_length),
-                                                                                         median_velocity=median(velocity_length))
-alveolar_velocity_summary_meso$timepoint <- ordered(as.factor(alveolar_velocity_summary_meso$timepoint), c("E12", "E15", "E18", "P0", "P3", "P5", "P7", "P14"))
-
-
-rna_total_velocity <- ggplot(ggdata_alveolar_meso, aes(x = timepoint, y = velocity_length, fill = group)) +
-        geom_line(data = alveolar_velocity_summary_meso,
-                  aes(x = timepoint, y = median_velocity, group = group, color = group),
-                  position = position_dodge(width = 0.5)) +
-        geom_boxplot(width = 0.5, position = position_dodge2(preserve = "single", padding = 0.1), outlier.size = 0.2) +
-        prism_theme() +
-        theme(aspect.ratio = 0.8,
-              panel.grid.minor.y = element_blank(),
-              panel.grid.major.y = element_blank(),
-              panel.grid.minor.x = element_blank(),
-              panel.grid.major.x = element_blank(),
-              legend.text = element_markdown(size = 12),
-              legend.title = element_text(size = 12)
-        ) +
-        ylab("RNA velocity length") +
-        labs(fill = "Cell type") +
-        scale_color_manual(guide = "none",
-                     values = c("#d62728", # Dark red
-                                "#ff9896" # Light red
-                     )) +
-        scale_fill_manual(values = c("#d62728", # Light orange
-                                     "#ff9896" # Dark orange
-        )) +
-        ylim(5,25)
-rna_total_velocity
-
-pdf("./figures/meso/meso_velocity_summary.pdf", width = 6, height = 4)
-rna_total_velocity
-dev.off()
-
-```
-
-
-```{r}
-
-
-
-rna_total_velocity <- ggplot() +
-        geom_line(data = alveolar_velocity_summary_epi,
-                  aes(x = timepoint, y = median_velocity, group = group, color = group),
-                  position = position_dodge(width = 0.5)) +
-        geom_boxplot(data = ggdata_alveolar_epi, aes(x = timepoint, y = velocity_length, color = group),
-                     width = 0.5, position = position_dodge2(preserve = "single", padding = 0.1)) +
-        scale_color_manual(guide = guide_legend(reverse = FALSE),
-                           values = c("#1f77b4", # Dark blue
-                                      "#aec7e8", # Light blue
-                                      "#2ca02c", # Dark green
-                                      "#98df8a" # Light green
-                           )) +
-        new_scale_color() +
-        geom_line(data = alveolar_velocity_summary_endo,
-                  aes(x = timepoint, y = median_velocity, group = group, color = group),
-                  position = position_dodge(width = 0.5)) +
-        geom_boxplot(data = ggdata_alveolar_endo, aes(x = timepoint, y = velocity_length, color = group),
-                     width = 0.5, position = position_dodge2(preserve = "single", padding = 0.1)) +
-        scale_color_manual(guide = guide_legend(reverse = FALSE),
-                           values = c("#ff7f0e", # Dark orange
-                                      "#ffbb78" # Light orange
-                           )) +
-        new_scale_color() +
-        geom_line(data = alveolar_velocity_summary_meso,
-                  aes(x = timepoint, y = median_velocity, group = group, color = group),
-                  position = position_dodge(width = 0.5)) +
-        geom_boxplot(data = ggdata_alveolar_meso, aes(x = timepoint, y = velocity_length, color = group),
-                     width = 0.5, position = position_dodge2(preserve = "single", padding = 0.1)) +
-        scale_color_manual(guide = guide_legend(reverse = FALSE),
-                           values = c("#d62728", # Dark red
-                                      "#ff9896" # Light red
-                           )) +
-        prism_theme() +
-        theme(aspect.ratio = 0.4,
-              panel.grid.minor.y = element_blank(),
-              panel.grid.major.y = element_blank(),
-              panel.grid.minor.x = element_blank(),
-              panel.grid.major.x = element_blank(),
-              legend.text = element_text(size = 12),
-              legend.title = element_text(size = 12)
-        ) +
-        ylab("RNA Velocity Length") +
-        labs(color = "Cell type") +
-
-        ylim(5,25)
-rna_total_velocity
-
-
-all_alveolar_velocity <- rbind(ggdata_alveolar_epi, ggdata_alveolar_endo, ggdata_alveolar_meso)
-all_summary_velocity <- rbind(alveolar_velocity_summary_epi, alveolar_velocity_summary_endo, alveolar_velocity_summary_meso)
-
-rna_total_velocity <- ggplot(all_alveolar_velocity, aes(x = timepoint, y = velocity_length, color = group)) +
-        geom_line(data = all_summary_velocity,
-                  aes(x = timepoint, y = median_velocity, group = group, color = group),
-                  position = position_dodge(width = 0.5)) +
-        geom_boxplot(width = 0.5) +
-        prism_theme() +
-        theme(aspect.ratio = 0.4,
-              panel.grid.minor.y = element_blank(),
-              panel.grid.major.y = element_blank(),
-              panel.grid.minor.x = element_blank(),
-              panel.grid.major.x = element_blank(),
-              legend.text = element_text(size = 12),
-              legend.title = element_text(size = 12)
-        ) +
-        ylab("RNA Velocity Length") +
-        labs(color = "Cell type") +
-        scale_color_brewer(guide = guide_legend(reverse = TRUE), palette="Dark2") +
-        ylim(5,25) +
-        facet_grid(rows = vars(macro_celltype))
-rna_total_velocity
-```
-
-```{r}
-ggdata_meso$macro_celltype <- "Mesenchyme"
-ggdata_endo$macro_celltype <- "Endothelium"
-ggdata_epi$macro_celltype <- "Epithelium"
-
-ggdata_all <- rbind(ggdata_meso, ggdata_endo, ggdata_epi)
-velocity_summary <- ggdata_all %>% group_by(macro_celltype,timepoint) %>% summarise(mean_velocity=mean(velocity_length),
-                                                                                    median_velocity=median(velocity_length))
-velocity_summary$timepoint <- ordered(as.factor(velocity_summary$timepoint), c("E12", "E15", "E18", "P0", "P3", "P5", "P7", "P14"))
-
-rna_total_velocity <- ggplot(ggdata_all, aes(x = timepoint, y = velocity_length, color = macro_celltype)) +
-        geom_line(data = velocity_summary,
-                  aes(x = timepoint, y = median_velocity, group = macro_celltype, color = macro_celltype),
-                  position = position_dodge(width = 0.5)) +
-        geom_boxplot() +
-        prism_theme() +
-        theme(aspect.ratio = 0.4,
-              panel.grid.minor.y = element_blank(),
-              panel.grid.major.y = element_blank(),
-              panel.grid.minor.x = element_blank(),
-              panel.grid.major.x = element_blank(),
-              legend.text = element_text(size = 12),
-              legend.title = element_text(size = 12)
-        ) +
-        ylab("RNA Velocity Length") +
-        labs(color = "Cell type") +
-        scale_color_manual(guide = guide_legend(reverse=TRUE),
-                             values = c("#ff7f0e", # Orange - Endo
-                                        "#1f77b4", # Blue - Epi
-                                        "#d62728")) # Red - Meso
-        scale_color_brewer(guide = guide_legend(reverse = TRUE), palette="Dark2")
-rna_total_velocity
-
-pdf("./figures/all/rna_velocity.pdf", width = 10, height = 4)
-rna_total_velocity
-dev.off()
-
-```
-
 
 ```{r}
 to_term <- cellrank_out$obsm$to_terminal_states
 
 colnames(to_term) <- cellrank_out$uns$to_terminal_states_names
 head(to_term)
-a <- 1
 ```
 
 ```{r}
@@ -515,31 +187,6 @@ to_term <- as.data.frame(to_term)
 to_term$timepoint <- ordered(as.factor(cellrank_out$obs$timepoint), c("E12", "E15", "E18", "P0", "P3", "P5", "P7", "P14"))
 
 ```
-
-```{r}
-prism_theme <- function(){
-  theme_grey() %+replace%
-    theme(panel.border = element_blank(),
-          panel.background = element_blank(),
-          panel.grid.major = element_line(),
-          panel.grid.minor = element_blank(),
-          legend.key=element_blank(),
-          axis.line.x = element_line(size = 0.5, linetype = "solid", colour = "black"),
-          axis.line.y = element_line(size = 0.5, linetype = "solid", colour = "black"),
-          axis.text.x = element_text(size = 14, angle = 45, hjust = 1, vjust = 0.95),
-          axis.text.y = element_text(size = 14),
-          axis.ticks = element_line(size = 0.5),
-          axis.ticks.length = unit(0.25, "cm"),
-          axis.title.y = element_text(size = 16, vjust = 4, angle = 90),
-          axis.title.x = element_blank(),
-          plot.margin = margin(t = 5, r = 5, b = 5, l = 20),
-          legend.text = element_text(size = 14),
-          legend.key.size = unit(2,"line"),
-          legend.title = element_blank())
-}
-
-```
-
 
 ```{r}
 
@@ -587,13 +234,14 @@ transitional_jitter_and_bar <- ggplot() +
         ylab("Transition probability (%)")
 transitional_jitter_and_bar
 
-pdf("./figures/meso/fate_prenatal_wnt2.pdf", height = 5, width = 4)
+pdf("./figures/meso/fate_prenatal_wnt2.pdf", width = 4, height = 5)
 transitional_jitter_and_bar
 dev.off()
 
-tiff("./figures/meso/fate_prenatal_wnt2.tiff", height = 5, width = 4, unit = "in", res = 600, compression = "lzw")
-transitional_jitter_and_bar
-dev.off()
+saveTiff("./figures/meso/fate_prenatal_wnt2.tiff",
+         transitional_jitter_and_bar,
+         width = 4, height = 5)
+
 ```
 
 ```{r}
@@ -642,19 +290,17 @@ prenatal_myo_jitter_and_bar <- ggplot() +
 prenatal_myo_jitter_and_bar
 
 
-
-pdf("./figures/meso/fate_prenatal_myo.pdf", height = 5, width = 4)
+pdf("./figures/meso/fate_prenatal_myo.pdf", width = 4, height = 5)
 prenatal_myo_jitter_and_bar
 dev.off()
 
+saveTiff("./figures/meso/fate_prenatal_myo.tiff",
+         prenatal_myo_jitter_and_bar,
+         width = 4, height = 5)
 
-tiff("./figures/meso/fate_prenatal_myo.tiff", height = 5, width = 4, unit = "in", res = 600, compression = "lzw")
-prenatal_myo_jitter_and_bar
-dev.off()
 ```
 
 ```{r}
-
 from_initial <- cellrank_out$obsm$from_initial_states #absorbtion from X
 colnames(from_initial) <- cellrank_out$uns$from_initial_states_names
 head(from_initial)
@@ -680,21 +326,16 @@ colnames(from_initial) <- c("Smooth muscle",
 ```
 
 ```{r}
-# Combine similar terminal types
-#from_initial_no_T2 <- from_initial[,c(1,2,3,5)]
-
-#from_initial <- cbind(from_initial_no_T2, rowSums(from_initial[,c(4,6,7)])) # Merge the Type II fates
-#colnames(from_initial) <- c(colnames(from_initial_no_T2), "Type II")
 from_initial <- as.data.frame(from_initial)
 from_initial$timepoint <- ordered(as.factor(cellrank_out$obs$timepoint), c("E12", "E15", "E18", "P0", "P3", "P5", "P7", "P14"))
 
-head(from_initial[cellrank_out$obs$cell_subtype == "Prenatal Wnt2+",])
+head(from_initial[cellrank_out$obs$cell_subtype == "Proliferating Wnt2+",])
 
 
 to_wnt2_plot <- ggplot(melt(from_initial[cellrank_out$obs$cell_subtype == "Prenatal Wnt2+",]), aes(x = value, color = variable, fill = variable)) +
         geom_density(alpha = 0.3) +
         scale_x_continuous(limits = c(0.05,1)) +
-        ggtitle("Fate probability towards 'Prenatal Wnt2+' cells")
+        ggtitle("Fate probability towards 'Proliferating Wnt2+' cells")
 
 to_wnt2_plot
 
@@ -709,16 +350,11 @@ summary_stats <- melt(from_initial[cellrank_out$obs$cell_subtype == "Wnt2+",]) %
                                                                                                                     q2 = quantile(value, 3/4) * 100,
 )
 
-#levels(summary_stats$variable)[2] <- "Proliferating miEC"
-
-#median(check_means[check_means > 0])
 
 
 to_wnt2_long <- melt(from_initial[cellrank_out$obs$cell_subtype == "Wnt2+",])
 to_wnt2_long$value <- to_wnt2_long$value * 100
 to_wnt2_long <- to_wnt2_long[to_wnt2_long$value > 1,]
-
-#levels(from_initial_long$variable)[2] <- "Proliferating miEC"
 
 
 transitional_barplot <- ggplot() +
@@ -739,9 +375,10 @@ transitional_barplot <- ggplot() +
 transitional_barplot
 
 
-pdf("./figures/meso/to_wnt2_probability.pdf", height = 5, width = 3)
-transitional_barplot
-dev.off()
+saveTiff("./figures/meso/to_wnt2_probability.tiff",
+         transitional_barplot,
+         width = 3, height = 5)
+
 ```
 
 ```{r}
@@ -753,16 +390,10 @@ summary_stats <- melt(from_initial[cellrank_out$obs$cell_subtype == "Myofibrobla
                                                                                                                              q2 = quantile(value, 3/4) * 100,
 )
 
-#levels(summary_stats$variable)[2] <- "Proliferating miEC"
-
-#median(check_means[check_means > 0])
-
 
 to_wnt2_long <- melt(from_initial[cellrank_out$obs$cell_subtype == "Myofibroblast",])
 to_wnt2_long$value <- to_wnt2_long$value * 100
 to_wnt2_long <- to_wnt2_long[to_wnt2_long$value > 1,]
-
-#levels(from_initial_long$variable)[2] <- "Proliferating miEC"
 
 
 transitional_barplot <- ggplot() +
@@ -782,9 +413,10 @@ transitional_barplot <- ggplot() +
 
 transitional_barplot
 
+saveTiff("./figures/meso/to_myo_probability.tiff",
+         transitional_barplot,
+         width = 3, height = 5)
 
-pdf("./figures/meso/to_myo_probability.pdf", height = 5, width = 3)
-transitional_barplot
-dev.off()
+
 ```
 

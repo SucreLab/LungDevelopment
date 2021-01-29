@@ -9,8 +9,8 @@ output: rmarkdown::github_document
 
 ## Load libraries and helper functions
 ```{r, results="hide", message = FALSE}
-setwd("~/postdoc/code/devo_scseq")
-
+setwd("~/postdoc/code/devo_scseq_github")
+source("./helper_functions/globals.R")
 source("./helper_functions/libraries.R")
 
 opts_knit$set(root.dir = getwd())
@@ -20,10 +20,7 @@ source("./helper_functions/cluster.R")
 source("./helper_functions/colors.R")
 source("./helper_functions/brackets.R")
 source("./helper_functions/heatmaps.R")
-set.seed(42) # For reproducability
 
-N_WORKERS <- 3
-options(future.globals.maxSize=11*1024*1024^2) # First number is GB of memory allowed
 plan("multiprocess", workers = N_WORKERS)
 ```
 ## Load data from merge and clean pipeline
@@ -54,9 +51,11 @@ p_time <- DimPlot(meso, group.by = "timepoint") + umap_theme() +
 
 p_cluster + p_time + plot_annotation("Mesenchyme")
 
-pdf("./figures/meso/supp_umap.pdf", width = 12, height = 4.5)
-p_cluster + p_time + plot_annotation("Mesenchyme")
-dev.off()
+
+saveTiff("./figures/meso/supp_umap.tiff",
+         p_cluster + p_time + plot_annotation("Mesenchyme"),
+         width = 12, height = 4.5)
+
 ```
 
 ## Identify marker genes in each cluster
@@ -73,47 +72,47 @@ if (!file.exists(filename)) {
 
 ### Cluster 0
 ```{r}
-meso_markers[[0 + 1]]
+meso_markers[[0 + 1]][n_print,]
 ```
 
 ### Cluster 1
 ```{r}
-meso_markers[[1 + 1]]
+meso_markers[[1 + 1]][n_print,]
 ```
 
 ### Cluster 2
 ```{r}
-meso_markers[[2 + 1]]
+meso_markers[[2 + 1]][n_print,]
 ```
 
 ### Cluster 3
 ```{r}
-meso_markers[[3 + 1]]
+meso_markers[[3 + 1]][n_print,]
 ```
 
 ### Cluster 4
 ```{r}
-meso_markers[[4 + 1]]
+meso_markers[[4 + 1]][n_print,]
 ```
 
 ### Cluster 5
 ```{r}
-meso_markers[[5 + 1]]
+meso_markers[[5 + 1]][n_print,]
 ```
 
 ### Cluster 6
 ```{r}
-meso_markers[[6 + 1]]
+meso_markers[[6 + 1]][n_print,]
 ```
 
 ### Cluster 7
 ```{r}
-meso_markers[[7 + 1]]
+meso_markers[[7 + 1]][n_print,]
 ```
 
 ### Cluster 8
 ```{r}
-meso_markers[[8 + 1]]
+meso_markers[[8 + 1]][n_print,]
 ```
 
 
@@ -175,9 +174,11 @@ meso_heatmap <- ggplot(heatmap_df, aes(x = gene, y = cluster, fill = expression_
 
 meso_heatmap
 
-pdf("./figures/meso/supp_cluster_markers.pdf", height = 5.5, width = 12)
-meso_heatmap
-dev.off()
+
+saveTiff("./figures/meso/supp_cluster_markers.tiff",
+         meso_heatmap,
+         width = 12, height = 5.5)
+
 ```
 
 
@@ -207,27 +208,27 @@ ggplot(melt(prop_celltypes), aes(y=value, x=Var1)) +
 ```{r}
 meso_relabel <- meso
 # Label the cell-types
-text_vec <- list(c("Wnt2+", 2),
+text_vec <- list(c("Wnt2+ FB", 2),
                  c("Myofibroblast", 2),
                  c("Adventitial", 2),
-                 c("Prenatal\nWnt2+", 2),
+                 c("Prolif.\nWnt2+ FB", 2),
                  c("Pericyte", 2),
-                 c("Prenatal\nMyofibroblast", 2),
+                 c("Prolif.\nMyofibroblast", 2),
                  c("Mesothelium", 2),
                  c("Smooth\nmuscle", 2),
                  c("Neuron", 2))
-levels(Idents(meso_relabel)) <- c("Wnt2+", #0
+levels(Idents(meso_relabel)) <- c("Wnt2+ FB", #0
                                   "Myofibroblast", #1
                                   "Adventitial fibroblast", #2
-                                  "Prenatal Wnt2+", #3
+                                  "Proliferating Wnt2+ FB", #3
                                   "Pericyte", #4
-                                  "Prenatal Myofibroblast", #5
+                                  "Proliferating myofibroblast", #5
                                   "Mesothelium", #6
                                   "Smooth muscle", #7
                                   "Neuron" #8
 
 )
-Idents(meso_relabel) <- ordered(Idents(meso_relabel), c("Prenatal Wnt2+", "Wnt2+", "Prenatal Myofibroblast", "Myofibroblast", "Adventitial fibroblast", "Pericyte", "Mesothelium", "Smooth muscle", "Neuron"))
+Idents(meso_relabel) <- ordered(Idents(meso_relabel), c("Proliferating Wnt2+ FB", "Wnt2+ FB", "Proliferating myofibroblast", "Myofibroblast", "Adventitial fibroblast", "Pericyte", "Mesothelium", "Smooth muscle", "Neuron"))
 
 Ident_md <- Idents(meso_relabel)
 levels(Ident_md)[1:2] <- c("Prenatal *Wnt2*+ FB", "*Wnt2*+ FB")
@@ -246,11 +247,14 @@ if (!file.exists(filename)) {
 
 # Relabel clusters based on marker gene expression
 ```{r, fig.width = 12}
+
 p_rename_cluster <- DimPlot(meso_relabel, group.by = "Ident_md") + umap_theme() +
         scale_colour_manual(name = "Cluster", values = color_category_20) +
         theme(aspect.ratio=1) +
         theme(legend.text=element_markdown(size=14),
-              legend.title=element_text(size=14))
+              legend.title=element_text(size=14),
+              plot.title = element_text(size=14)) +
+        ggtitle("Mesenchyme")
 
 
 p_time <- DimPlot(meso_relabel, group.by = "timepoint") + umap_theme() +
@@ -262,9 +266,11 @@ p_time <- DimPlot(meso_relabel, group.by = "timepoint") + umap_theme() +
 p_time + p_rename_cluster + plot_annotation("Mesenchyme")
 
 
-pdf("./figures/meso/umap.pdf", width = 6, height = 4.5)
-p_rename_cluster + plot_annotation("Mesenchyme")
-dev.off()
+
+saveTiff("./figures/meso/umap.tiff",
+         p_rename_cluster,
+         width = 6, height = 4.5)
+
 ```
 
 ## Re-confirm the markers in the relabeled clusters
@@ -283,41 +289,41 @@ if (!file.exists(filename)) {
 
 ### Prenatal Wnt2+
 ```{r}
-meso_relabeled_markers[[0 + 1]]
+meso_relabeled_markers[[0 + 1]][n_print,]
 ```
 
 ### Wnt2+
 ```{r}
-meso_relabeled_markers[[1 + 1]]
+meso_relabeled_markers[[1 + 1]][n_print,]
 ```
 ### Prenatal Myofibroblast
 ```{r}
-meso_relabeled_markers[[2 + 1]]
+meso_relabeled_markers[[2 + 1]][n_print,]
 ```
 
 ### Myofibroblast
 ```{r}
-meso_relabeled_markers[[3 + 1]]
+meso_relabeled_markers[[3 + 1]][n_print,]
 ```
 
 ### Adventitial fibroblast
 ```{r}
-meso_relabeled_markers[[4 + 1]]
+meso_relabeled_markers[[4 + 1]][n_print,]
 ```
 
 ### Pericyte
 ```{r}
-meso_relabeled_markers[[5 + 1]]
+meso_relabeled_markers[[5 + 1]][n_print,]
 ```
 
 ### Mesothelium
 ```{r}
-meso_relabeled_markers[[6 + 1]]
+meso_relabeled_markers[[6 + 1]][n_print,]
 ```
 
 ### Neuron
 ```{r}
-meso_relabeled_markers[[7 + 1]]
+meso_relabeled_markers[[7 + 1]][n_print,]
 ```
 
 
@@ -356,10 +362,9 @@ meso_mountain <- ggplot(melt(prop_celltypes), aes(y=value, x=Var1)) +
 
 meso_mountain
 
-
-pdf("./figures/meso/labeled_mountain.pdf", width = 9, height = 4)
-meso_mountain
-dev.off()
+saveTiff("./figures/meso/labeled_mountain.tiff",
+         meso_mountain,
+         width = 9, height = 4)
 
 ```
 
@@ -376,9 +381,10 @@ wnt5a_meso_plot <- FeaturePlot(meso, "Wnt5a") +
 
 wnt2_meso_plot + wnt5a_meso_plot + plot_layout(ncol = 2)
 
-pdf("./figures/meso/meso_wnt_plot.pdf", width = 12, height = 4.5)
-wnt2_meso_plot + wnt5a_meso_plot + plot_layout(ncol = 2)
-dev.off()
+saveTiff("./figures/meso/meso_wnt_plot.tiff",
+         wnt2_meso_plot + wnt5a_meso_plot + plot_layout(ncol = 2),
+         width = 12, height = 4.5)
+
 ```
 
 
@@ -415,9 +421,9 @@ ggplot_data$timepoint <- meso_relabel$timepoint
 ggplot_data$subclusters <- Idents(meso_highres)
 
 myo_highlight <- ggplot() +
-        geom_point(data = ggplot_data[!(ggplot_data$named_clusters %in% c("Prenatal Myofibroblast", "Myofibroblast")),],
+        geom_point(data = ggplot_data[!(ggplot_data$named_clusters %in% c("Proliferating myofibroblast", "Myofibroblast")),],
                    aes(x = UMAP_1, y = UMAP_2), size = 0.1, alpha = 0.2, color = "gray") +
-        geom_point(data = ggplot_data[(ggplot_data$named_clusters %in% c("Prenatal Myofibroblast", "Myofibroblast")),],
+        geom_point(data = ggplot_data[(ggplot_data$named_clusters %in% c("Proliferating myofibroblast", "Myofibroblast")),],
                    aes(x = UMAP_1, y = UMAP_2, color = timepoint), size = 0.1) +
         umap_theme() +
         scale_colour_manual(name = "Timepoint", values = color_scanpy_default) +
@@ -438,8 +444,8 @@ myo_supp_highlight <- ggplot() +
         umap_theme() +
         scale_colour_manual(name = "Cluster", values = color_scanpy_default, labels = c("E12/E15 Myofibroblast",
                                                                                         "E18 Myofibroblast",
-                                                                                        "Proliferating Myofibroblast",
-                                                                                        "Mature Myofibroblast"),
+                                                                                        "Replicating myofibroblast",
+                                                                                        "Mature myofibroblast"),
         breaks = c(10,6,8,0)) +
         theme(aspect.ratio=1) +
         theme(legend.text=element_text(size=14),
@@ -449,13 +455,15 @@ myo_supp_highlight <- ggplot() +
 
 myo_supp_highlight
 
-pdf("./figures/meso/umap_myo_timepoint.pdf", width = 5, height = 4.5)
-myo_highlight
-dev.off()
+saveTiff("./figures/meso/umap_myo_timepoint.tiff",
+         myo_highlight,
+         width = 5, height = 4.5)
 
-pdf("./figures/meso/umap_myo_supp_cluster.pdf", width = 6, height = 4.5)
-myo_supp_highlight
-dev.off()
+
+saveTiff("./figures/meso/umap_myo_supp_cluster.tiff",
+         myo_supp_highlight,
+         width = 6, height = 4.5)
+
 
 ```
 
@@ -473,67 +481,67 @@ if (!file.exists(filename)) {
 
 ### Cluster 0
 ```{r}
-meso_markers_highres[[0 + 1]]
+meso_markers_highres[[0 + 1]][n_print,]
 ```
 
 ### Cluster 1
 ```{r}
-meso_markers_highres[[1 + 1]]
+meso_markers_highres[[1 + 1]][n_print,]
 ```
 
 ### Cluster 2
 ```{r}
-meso_markers_highres[[2 + 1]]
+meso_markers_highres[[2 + 1]][n_print,]
 ```
 
 ### Cluster 3
 ```{r}
-meso_markers_highres[[3 + 1]]
+meso_markers_highres[[3 + 1]][n_print,]
 ```
 
 ### Cluster 4
 ```{r}
-meso_markers_highres[[4 + 1]]
+meso_markers_highres[[4 + 1]][n_print,]
 ```
 
 ### Cluster 5
 ```{r}
-meso_markers_highres[[5 + 1]]
+meso_markers_highres[[5 + 1]][n_print,]
 ```
 
 ### Cluster 6
 ```{r}
-meso_markers_highres[[6 + 1]]
+meso_markers_highres[[6 + 1]][n_print,]
 ```
 
 ### Cluster 7
 ```{r}
-meso_markers_highres[[7 + 1]]
+meso_markers_highres[[7 + 1]][n_print,]
 ```
 
 ### Cluster 8
 ```{r}
-meso_markers_highres[[8 + 1]]
+meso_markers_highres[[8 + 1]][n_print,]
 ```
 
 ### Cluster 9
 ```{r}
-meso_markers_highres[[9 + 1]]
+meso_markers_highres[[9 + 1]][n_print,]
 ```
 
 ### Cluster 10
 ```{r}
-meso_markers_highres[[10 + 1]]
+meso_markers_highres[[10 + 1]][n_print,]
 ```
 
 ### Cluster 11
 ```{r}
-meso_markers_highres[[11 + 1]]
+meso_markers_highres[[11 + 1]][n_print,]
 ```
 
 ### Cluster 12
 ```{r}
-meso_markers_highres[[12 + 1]]
+meso_markers_highres[[12 + 1]][n_print,]
 ```
 
 # Save markers for detailed meso clusters

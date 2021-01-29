@@ -18,6 +18,7 @@ library(MAST)
 library(grid)
 library(boot)
 library(openxlsx)
+library(magick)
 
 library(knitr) # for kable
 options(knitr.table.format = "html")

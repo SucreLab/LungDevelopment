@@ -2,46 +2,25 @@
 title: "Plottings outputs of the cellrank analysis"
 author: Nick Negretti
 date: 12/07/20
-output:
-  html_document:
-    df_print: paged
-    toc: true
-    toc_float:
-      toc_collapsed: false
-    toc_depth: 3
-    number_sections: false
-    theme: lumen
+output: rmarkdown::github_document
 ---
 
-```{css toc-content, echo = FALSE}
-
-.main-container {
-    margin-left: 20px;
-}
-.tocify-extend-page {
-  height: 0 !important;
-}
-```
 # Plot cellrank outputs of the lung epithelium
 
 ## Load libraries and helper functions
 ```{r, results="hide", message = FALSE}
-setwd("~/postdoc/code/devo_scseq")
-
+setwd("~/postdoc/code/devo_scseq_github")
+source("./helper_functions/globals.R")
 source("./helper_functions/libraries.R")
 
 opts_knit$set(root.dir = getwd())
 
 source("./helper_functions/trajectory.R")
-
 source("./helper_functions/cluster.R")
 source("./helper_functions/colors.R")
 source("./helper_functions/brackets.R")
 source("./helper_functions/heatmaps.R")
-set.seed(42) # For reproducability
 
-N_WORKERS <- 3
-options(future.globals.maxSize=2048*1024^2)
 plan("multiprocess", workers = N_WORKERS)
 ```
 ## Load data from merge and clean pipeline
@@ -74,54 +53,6 @@ ggplot(ggdata_epi %>% arrange(velocity_length), aes(x = x, y = y, color = veloci
 ```{r}
 epi_ms <- Matrix::readMM("./velocity/epi/epi_expression_Ms.mtx.gz")
 ```
-
-
-```{r}
-gene <- "Wnt7b"
-include_celltypes <- c("AT1", "AT2", "Primordial", "Transitional")
-exp_over_time <- data.frame(expression = epi_ms[,colnames(cellrank_out) == gene],
-                            Cluster = cellrank_out$obs$cell_subtype,
-                            latent_time = cellrank_out$obs$latent_time
-)
-
-unique(exp_over_time$Cluster)
-
-levels(exp_over_time$Cluster)[levels(exp_over_time$Cluster) == "Type I"] <- "AT1"
-levels(exp_over_time$Cluster)[levels(exp_over_time$Cluster) == "Type II"] <- "AT2"
-
-
-
-exp_over_time$Cluster <- ordered(as.factor(exp_over_time$Cluster), c("Primordial", "Transitional", "AT1", "AT2", "Cilliated", "Secretory", "Neuroendocrine"))
-
-exp_over_time <- exp_over_time[exp_over_time$Cluster %in% include_celltypes,]
-
-test_exp <- ggplot(exp_over_time, aes(y = expression, x = latent_time, color = Cluster)) +
-        geom_point(alpha = 0.5) +
-        scale_color_manual(aesthetics = c("color", "fill"), values= color_category_20, guide = guide_legend(override.aes = list(size=3), order = 1)) +
-        theme(legend.key = element_blank(),
-              legend.text = element_markdown(size=14),
-              legend.title = element_markdown(size=16),
-              #axis.text.x  = element_text(size=14),
-              axis.text.x = element_blank(),
-              axis.ticks.x = element_blank(),
-              axis.text.y = element_text(size=14),
-              axis.title.x = element_text(size=14, vjust = -1),
-              axis.title.y = element_text(size=14),
-              panel.grid.major = element_blank(),
-              panel.grid.minor = element_blank(),
-              panel.background = element_rect(fill = "white", color = "black"),
-              aspect.ratio = 0.8,
-              plot.title = element_markdown(size = 16)
-        ) +
-        scale_x_continuous(breaks = c(0,1)) +
-        ylab("Expression") +
-        xlab("Latent time") +
-        ggtitle(paste0("*", gene, "*"))
-
-test_exp
-
-```
-
 
 ```{r}
 gene <- "Hopx"
@@ -263,19 +194,14 @@ cdkn1a_exp
 
 
 ```{r}
-#tiff("./figures/epi/latent_time/sftpc_hopx_cdkn1a.tiff", width = 20, height =4.5, units = "in", res = 600, compression = "lzw", bg = "transparent")
-#hopx_exp + sftpc_exp +  cdkn1a_exp + plot_layout(ncol = 3, nrow = 1, guides = "collect")
-#dev.off()
 
-tiff("./figures/epi/latent_time/sftpc_hopx.tiff", width = 13, height =4.5, units = "in", res = 600, compression = "lzw", bg = "transparent")
-hopx_exp + sftpc_exp +  plot_layout(ncol = 2, nrow = 1, guides = "collect")
-dev.off()
+saveTiff("./figures/epi/latent_time/sftpc_hopx.tiff",
+         hopx_exp + sftpc_exp +  plot_layout(ncol = 2, nrow = 1, guides = "collect"),
+         width = 13, height = 4.5)
 
-
-tiff("./figures/epi/latent_time/cdkn1a.tiff", width = 6, height =4.5, units = "in", res = 600, compression = "lzw", bg = "transparent")
-cdkn1a_exp
-dev.off()
-
+saveTiff("./figures/epi/latent_time/cdkn1a.tiff",
+         cdkn1a_exp,
+         width = 6, height = 4.5)
 
 ```
 
@@ -323,15 +249,11 @@ fbln5_exp <- ggplot(exp_over_time, aes(y = expression, x = latent_time, color = 
 
 fbln5_exp
 
-tiff("./figures/epi/latent_time/fbln5.tiff", width = 6, height =4.5, units = "in", res = 600, compression = "lzw", bg = "transparent")
-fbln5_exp
-dev.off()
+saveTiff("./figures/epi/latent_time/fbln5.tiff",
+         fbln5_exp,
+         width = 6, height = 4.5)
 ```
 
-
-```{r}
-head(colnames(cellrank_out))
-```
 
 ```{r}
 to_term_nomerge <- cellrank_out$obsm$to_terminal_states
@@ -344,69 +266,6 @@ to_term <- cbind(to_term_nomerge[,c(1,2)], rowSums(to_term_nomerge[,c(3,4)]), ro
 colnames(to_term) <- c("Neuroendocrine", "Secretory", "Cilliated", "Type II", "Type I")
 to_term <- as.data.frame(to_term)
 to_term$timepoint <- ordered(as.factor(cellrank_out$obs$timepoint), c("E12", "E15", "E18", "P0", "P3", "P5", "P7", "P14"))
-
-head(to_term[cellrank_out$obs$cell_subtype == "Transitional",])
-```
-
-```{r}
-ggplot(melt(to_term[cellrank_out$obs$cell_subtype == "Type II",]), aes(x = value, color = variable, fill = variable)) +
-        geom_density(alpha = 0.3) +
-        scale_x_continuous(limits = c(0.1,1)) +
-        facet_grid(vars(timepoint), scales = "free")
-
-
-
-transitional_plot <- ggplot(melt(to_term[cellrank_out$obs$cell_subtype == "Transitional",]), aes(x = value, color = variable, fill = variable)) +
-  geom_density(alpha = 0.3) +
-  scale_x_continuous(limits = c(0.1,1)) +
-        ggtitle("Fate probability of 'transitional' cells")
-
-T1_plot <- ggplot(melt(to_term[cellrank_out$obs$cell_subtype == "Type I",]), aes(x = value, color = variable, fill = variable)) +
-  geom_density(alpha = 0.3) +
-  scale_x_continuous(limits = c(0.1,1)) +
-  ggtitle("Fate probability of 'Type I' cells")
-
-T2_plot <- ggplot(melt(to_term[cellrank_out$obs$cell_subtype == "Type II",]), aes(x = value, color = variable, fill = variable)) +
-  geom_density(alpha = 0.3) +
-  scale_x_continuous(limits = c(0.1,1)) +
-  ggtitle("Fate probability of 'Type II' cells")
-
-primordial_plot <- ggplot(melt(to_term[cellrank_out$obs$cell_subtype == "Primordial",]), aes(x = value, color = variable, fill = variable)) +
-  geom_density(alpha = 0.3) +
-  scale_x_continuous(limits = c(0.1,1)) +
-  ggtitle("Fate probability of 'Primordial' cells")
-
-secretory_plot <- ggplot(melt(to_term[cellrank_out$obs$cell_subtype == "Secretory",]), aes(x = value, color = variable, fill = variable)) +
-  geom_density(alpha = 0.3) +
-  scale_x_continuous(limits = c(0.1,1)) +
-  ggtitle("Fate probability of 'Secretory' cells")
-
-transitional_plot + T1_plot + T2_plot + primordial_plot + secretory_plot + patchwork::plot_layout(ncol = 1)
-
-```
-
-```{r}
-prism_theme <- function(){
-  theme_grey() %+replace%
-    theme(panel.border = element_blank(),
-          panel.background = element_blank(),
-          panel.grid.major = element_line(),
-          panel.grid.minor = element_blank(),
-          legend.key=element_blank(),
-          axis.line.x = element_line(size = 0.5, linetype = "solid", colour = "black"),
-          axis.line.y = element_line(size = 0.5, linetype = "solid", colour = "black"),
-          axis.text.x = element_text(size = 14, angle = 45, hjust = 1, vjust = 0.95),
-          axis.text.y = element_text(size = 14),
-          axis.ticks = element_line(size = 0.5),
-          axis.ticks.length = unit(0.25, "cm"),
-          axis.title.y = element_text(size = 16, vjust = 4, angle = 90),
-          axis.title.x = element_blank(),
-          plot.margin = margin(t = 5, r = 5, b = 5, l = 20),
-          legend.text = element_text(size = 14),
-          legend.key.size = unit(2,"line"),
-          legend.title = element_blank())
-}
-
 ```
 
 ```{r}
@@ -475,10 +334,16 @@ transitional_jitter_and_bar
 
 transitional_violin + transitional_jitter + transitional_barplot + transitional_jitter_and_bar + plot_layout(nrow = 1)
 
+saveTiff("./figures/epi/from_transitional_probability.tiff",
+         transitional_jitter_and_bar,
+         width = 3.5, height = 5.3)
+
 pdf("./figures/epi/from_transitional_probability.pdf", height = 5.3, width = 3.5)
 transitional_jitter_and_bar
 dev.off()
 ```
+
+
 ```{r}
 summary_stats <- melt(to_term[cellrank_out$obs$cell_subtype == "Type II",]) %>% group_by(variable) %>% summarize(mean = mean(value) * 100,
                                                                                                                       median = median(value) * 100,
@@ -520,6 +385,10 @@ at2_1_transitional_jitter_and_bar <- ggplot() +
         ylab("Transition probability (%)")
 
 at2_1_transitional_jitter_and_bar
+
+saveTiff("./figures/epi/fate_AT2.tiff",
+         at2_1_transitional_jitter_and_bar,
+         width = 3.5, height = 5.3)
 
 pdf("./figures/epi/fate_AT2.pdf", height = 5.3, width = 3.5)
 at2_1_transitional_jitter_and_bar
@@ -595,10 +464,16 @@ AT2_jitter_and_bar <- ggplot() +
 
 AT2_jitter_and_bar
 
+saveTiff("./figures/epi/to_AT2.tiff",
+         AT2_jitter_and_bar,
+         width = 3.2, height = 5.2)
+
 pdf("./figures/epi/to_AT2.pdf", height = 5.2, width = 3.2)
 AT2_jitter_and_bar
 dev.off()
+
 ```
+
 ```{r}
 summary_stats <- melt(from_initial[cellrank_out$obs$cell_subtype == "Type I",]) %>% group_by(variable) %>% summarize(mean = mean(value) * 100,
                                                                                                                       median = median(value) * 100,
@@ -638,9 +513,15 @@ AT1_jitter_and_bar <- ggplot() +
 
 AT1_jitter_and_bar
 
+
+saveTiff("./figures/epi/to_AT1.tiff",
+         AT1_jitter_and_bar,
+         width = 3.2, height = 5.2)
+
 pdf("./figures/epi/to_AT1.pdf", height = 5.2, width = 3.2)
 AT1_jitter_and_bar
 dev.off()
+
 ```
 
 
@@ -683,14 +564,27 @@ to_transitional_jitter_and_bar <- ggplot() +
 
 to_transitional_jitter_and_bar
 
+saveTiff("./figures/epi/to_transitional_probability.tiff",
+         to_transitional_jitter_and_bar,
+         width = 3.2, height = 5.2)
+
 pdf("./figures/epi/to_transitional_probability.pdf", height = 5.2, width = 3.2)
 to_transitional_jitter_and_bar
 dev.off()
+
 ```
+
+
 ```{r}
 to_transitional_jitter_and_bar + transitional_jitter_and_bar + plot_layout(ncol = 2, nrow = 1) & theme(plot.margin = margin(5.5,105.5,5.5,5.5))
-pdf("./figures/epi/main_transitions.pdf", height = 5, width = 10, bg = "transparent")
-to_transitional_jitter_and_bar + transitional_jitter_and_bar + plot_layout(ncol = 2, nrow = 1) & theme(plot.margin = margin(5.5,100.5,5.5,5.5))
+
+saveTiff("./figures/epi/main_transitions.tiff",
+         to_transitional_jitter_and_bar + transitional_jitter_and_bar + plot_layout(ncol = 2, nrow = 1) & theme(plot.margin = margin(5.5,100.5,5.5,5.5)),
+         height = 5, width = 10,)
+
+pdf("./figures/epi/main_transitions.pdf", height = 5, width = 10)
+to_transitional_jitter_and_bar + transitional_jitter_and_bar + plot_layout(ncol = 2, nrow = 1) & theme(plot.margin = margin(5.5,130.5,5.5,5.5))
 dev.off()
+
 ```
 

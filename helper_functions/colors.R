@@ -36,3 +36,25 @@ featureplot_theme <- function(){
           panel.grid.major = element_blank(),
           panel.grid.minor = element_blank())
 }
+
+
+prism_theme <- function(){
+  theme_grey() %+replace%
+    theme(panel.border = element_blank(),
+          panel.background = element_blank(),
+          panel.grid.major = element_line(),
+          panel.grid.minor = element_blank(),
+          legend.key=element_blank(),
+          axis.line.x = element_line(size = 0.5, linetype = "solid", colour = "black"),
+          axis.line.y = element_line(size = 0.5, linetype = "solid", colour = "black"),
+          axis.text.x = element_text(size = 14, angle = 45, hjust = 1, vjust = 0.95),
+          axis.text.y = element_text(size = 14),
+          axis.ticks = element_line(size = 0.5),
+          axis.ticks.length = unit(0.25, "cm"),
+          axis.title.y = element_text(size = 16, vjust = 4, angle = 90),
+          axis.title.x = element_blank(),
+          plot.margin = margin(t = 5, r = 5, b = 5, l = 20),
+          legend.text = element_text(size = 14),
+          legend.key.size = unit(2,"line"),
+          legend.title = element_blank())
+}

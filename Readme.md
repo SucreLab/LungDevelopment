@@ -7,13 +7,13 @@ A Single Cell Atlas of Lung Development
 R version 4.0.2 was used to run all of this code. The environment is stored 
 in an renv. Details can be found in the [renv.lock](./renv.lock) file.
 
-#### [Epithelium](./epithelium/all_epi.rmd)
+#### [Epithelium](./epithelium/all_epi.md)
 
 
-#### [Endothelium](./endothelium/all_endo.rmd)
+#### [Endothelium](./endothelium/all_endo.md)
 
 
-#### [Mesenchyme](./mesenchye/all_meso.rmd)
+#### [Mesenchyme](./mesenchye/all_meso.md)
 
-#### [Combined analysis](./merge_and_clean/all_cells.rmd)
+#### [Combined analysis](./merge_and_clean/all_cells.md)
 

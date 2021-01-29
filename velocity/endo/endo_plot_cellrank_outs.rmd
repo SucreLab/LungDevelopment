@@ -2,32 +2,15 @@
 title: "Plottings outputs of the cellrank analysis"
 author: Nick Negretti
 date: 12/07/20
-output:
-  html_document:
-    df_print: paged
-    toc: true
-    toc_float:
-      toc_collapsed: false
-    toc_depth: 3
-    number_sections: false
-    theme: lumen
+output: rmarkdown::github_document
 ---
 
-```{css toc-content, echo = FALSE}
-
-.main-container {
-    margin-left: 20px;
-}
-.tocify-extend-page {
-  height: 0 !important;
-}
-```
 # Plot cellrank outputs of the lung endothelium
 
 ## Load libraries and helper functions
 ```{r, results="hide", message = FALSE}
-setwd("~/postdoc/code/devo_scseq")
-
+setwd("~/postdoc/code/devo_scseq_github")
+source("./helper_functions/globals.R")
 source("./helper_functions/libraries.R")
 
 opts_knit$set(root.dir = getwd())
@@ -35,13 +18,9 @@ opts_knit$set(root.dir = getwd())
 source("./helper_functions/trajectory.R")
 source("./helper_functions/cluster.R")
 source("./helper_functions/colors.R")
-
 source("./helper_functions/brackets.R")
 source("./helper_functions/heatmaps.R")
-set.seed(42) # For reproducability
 
-N_WORKERS <- 3
-options(future.globals.maxSize=2048*1024^2)
 plan("multiprocess", workers = N_WORKERS)
 ```
 ## Load data from merge and clean pipeline
@@ -149,10 +128,9 @@ kdr_exp
 
 
 ```{r}
-tiff("./figures/endo/latent_time/car4_kdr.tiff", width = 15, height = 4, units = "in", res = 600, compression = "lzw", bg = "transparent")
-car4_exp + kdr_exp + plot_layout(ncol = 2, nrow = 1, guides = "collect")
-dev.off()
-
+saveTiff("./figures/endo/latent_time/car4_kdr.tiff",
+         car4_exp + kdr_exp + plot_layout(ncol = 2, nrow = 1, guides = "collect"),
+         width = 15, height = 4)
 ```
 
 
@@ -181,44 +159,10 @@ end_latent_time <- ggplot(ggdata_endo %>% arrange(latent_time), aes(x = x, y = y
 
 end_latent_time
 
-pdf("./figures/endo/latent_time_UMAP.pdf", width = 6, height = 4.5)
-end_latent_time
-dev.off()
-```
+saveTiff("./figures/endo/latent_time_UMAP.tiff",
+         end_latent_time,
+         width = 6, height = 4.5)
 
-```{r}
-velocity_summary <- ggdata_endo %>% group_by(group,timepoint) %>% summarise(mean_velocity=mean(velocity_length))
-velocity_summary$timepoint <- ordered(as.factor(velocity_summary$timepoint), c("E12", "E15", "E18", "P0", "P3", "P5", "P7", "P14"))
-
-ggdata_endo$timepoint <- ordered(as.factor(ggdata_endo$timepoint), c("E12", "E15", "E18", "P0", "P3", "P5", "P7", "P14"))
-
-ggplot(ggdata_endo, aes(y = velocity_length, x = timepoint)) +
-        geom_violin() +
-        stat_smooth() +
-        facet_grid(rows = vars(group))
-
-ggplot(ggdata_endo, aes(y = velocity_length, x = timepoint)) +
-        geom_boxplot() +
-        stat_smooth()
-```
-
-```{r}
-#ggdata_endo_density <- data.frame(type = as.factor(cellrank_out$obs$cell_subtype),
-#                             dpt_pseudotime = cellrank_out$obs$dpt_pseudotime,
-#                             latent_time = cellrank_out$obs$latent_time)
-
-
-#dpt_plot <- ggplot(ggdata_endo_density, aes(x = dpt_pseudotime, color = type, fill = type)) +
-#    geom_density(alpha = 0.3) +
-#    ggtitle("dpt_pseutotime: 'How long have the cells been around'")
-
-#lat_plot <- ggplot(ggdata_endo_density, aes(x = latent_time, color = type, fill = type)) +
-#  geom_density(alpha = 0.3) +
-#  ggtitle("latent_time: 'Are the cells becoming something else?'")
-
-
-#dpt_plot + lat_plot + plot_layout(ncol = 1)
-#a <- 2
 ```
 
 ```{r}
@@ -235,7 +179,6 @@ to_term <- cbind(to_term_unique, rowSums(to_term[,c(1, 6, 9)]), rowSums(to_term[
 
 
 colnames(to_term) <- c(colnames(to_term_unique), "miEC", "Lymphatic")
-
 
 ```
 
@@ -267,31 +210,6 @@ miEC_plot <- ggplot(melt(to_term[cellrank_out$obs$cell_subtype == "miEC",]), aes
 car4_plot + miEC_plot + patchwork::plot_layout(ncol = 1)
 
 ```
-
-```{r}
-prism_theme <- function(){
-  theme_grey() %+replace%
-    theme(panel.border = element_blank(),
-          panel.background = element_blank(),
-          panel.grid.major = element_line(),
-          panel.grid.minor = element_blank(),
-          legend.key=element_blank(),
-          axis.line.x = element_line(size = 0.5, linetype = "solid", colour = "black"),
-          axis.line.y = element_line(size = 0.5, linetype = "solid", colour = "black"),
-          axis.text.x = element_text(size = 14, angle = 45, hjust = 1, vjust = 0.95),
-          axis.text.y = element_text(size = 14),
-          axis.ticks = element_line(size = 0.5),
-          axis.ticks.length = unit(0.25, "cm"),
-          axis.title.y = element_text(size = 16, vjust = 4, angle = 90),
-          axis.title.x = element_blank(),
-          plot.margin = margin(t = 5, r = 5, b = 5, l = 20),
-          legend.text = element_text(size = 14),
-          legend.key.size = unit(2,"line"),
-          legend.title = element_blank())
-}
-
-```
-
 
 
 ```{r}
@@ -342,7 +260,7 @@ for (type in unique(summary_stats$variable)){
 }
 
 
-transitional_jitter_and_bar <- ggplot() +
+fate_miec_bar <- ggplot() +
         geom_col(data = summary_stats, aes(y = median, x = variable), color = "black", fill = "white") +
         #geom_col(data = summary_stats, aes(x = variable, y = early), fill = "#CDCDCD", width = 0.85) + # color early here, overlay on the other line
         geom_errorbar(data = summary_stats, aes(y = median, x = variable, ymin = q1, ymax = q2), width = 0.2) +
@@ -356,12 +274,16 @@ transitional_jitter_and_bar <- ggplot() +
         ) +
         theme(aspect.ratio = 1.6) +
         ylab("Transition probability (%)")
-transitional_jitter_and_bar
+fate_miec_bar
 
+saveTiff("./figures/endo/fate_miEC.tiff",
+         fate_miec_bar,
+         width = 3, height = 5)
 
-pdf("./figures/endo/fate_miEC_noself.pdf", height = 5, width = 3)
-transitional_jitter_and_bar
+pdf("./figures/endo/fate_miEC.pdf", height = 5, width = 3)
+fate_miec_bar
 dev.off()
+
 ```
 
 ```{r}
@@ -381,6 +303,7 @@ to_Car4_time_plot
 
 saveRDS(ggdata_endo_to_Car4, "./velocity/endo/data/endo_car4_prob.rds")
 ```
+
 ```{r}
 
 from_initial <- cellrank_out$obsm$from_initial_states
@@ -420,10 +343,6 @@ summary_stats <- melt(from_initial[cellrank_out$obs$cell_subtype == "Car4+",]) %
                                                                                                                     q2 = quantile(value, 3/4) * 100,
 )
 
-#levels(summary_stats$variable)[2] <- "Proliferating miEC"
-
-#median(check_means[check_means > 0])
-
 transitional_barplot <- ggplot(summary_stats, aes(y = mean, x = variable)) +
         geom_col() +
         geom_errorbar(aes(ymin = mean - sem, ymax = mean + sem), width = 0.2) +
@@ -438,8 +357,6 @@ from_initial_long <- melt(from_initial[cellrank_out$obs$cell_subtype == "Car4+",
 from_initial_long$value <- from_initial_long$value * 100
 from_initial_long_above_zero <- from_initial_long[from_initial_long$value > 1,]
 
-#levels(from_initial_long$variable)[2] <- "Proliferating miEC"
-
 get_early_pct <- function(data, summary_stats, cell_group){
   timepoints <- data$obs$timepoint[data$obs$cell_subtype == cell_group]
   early <- sum(timepoints %in% c("E12", "E15", "E18")) * 100 / length(timepoints)
@@ -450,7 +367,7 @@ for (type in unique(summary_stats$variable)){
   summary_stats[summary_stats$variable == type, "early"] <- get_early_pct(cellrank_out, summary_stats, type)
 }
 
-transitional_barplot <- ggplot() +
+source_car4_bar <- ggplot() +
         geom_col(data = summary_stats, aes(y = median, x = variable), color = "black", fill = "white") +
 
         #geom_col(data = summary_stats, aes(x = variable, y = early), fill = "#CDCDCD", width = 0.84) + # color early here, overlay on the other line
@@ -465,13 +382,26 @@ transitional_barplot <- ggplot() +
         ) +
         ylab("Transition probability (%)")
 
-transitional_barplot
+source_car4_bar
 
+saveTiff("./figures/endo/to_car4_probability.tiff",
+         source_car4_bar,
+         width = 3, height = 5)
 
 pdf("./figures/endo/to_car4_probability.pdf", height = 5, width = 3)
-transitional_barplot
+source_car4_bar
 dev.off()
+
 ```
+
 ```{r}
-transitional_jitter_and_bar + transitional_barplot + plot_layout(ncol = 2, nrow = 1) & theme(plot.margin = margin(5.5,105.5,5.5,5.5))
+saveTiff("./figures/endo/fate_miEC_source_car4.tiff",
+         fate_miec_bar + source_car4_bar + plot_layout(ncol = 2, nrow = 1) & theme(plot.margin = margin(5.5,105.5,5.5,5.5)),
+         width = 15, height = 4)
+
+
+pdf("./figures/endo/fate_miEC_source_car4.pdf", height = 4, width = 15)
+fate_miec_bar + source_car4_bar + plot_layout(ncol = 2, nrow = 1) & theme(plot.margin = margin(5.5,105.5,5.5,5.5))
+dev.off()
+
 ```

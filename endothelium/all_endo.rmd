@@ -9,8 +9,8 @@ output: rmarkdown::github_document
 
 ## Load libraries and helper functions
 ```{r, results="hide", message = FALSE}
-setwd("~/postdoc/code/devo_scseq")
-
+setwd("~/postdoc/code/devo_scseq_github")
+source("./helper_functions/globals.R")
 source("./helper_functions/libraries.R")
 
 opts_knit$set(root.dir = getwd())
@@ -20,10 +20,7 @@ source("./helper_functions/cluster.R")
 source("./helper_functions/colors.R")
 source("./helper_functions/brackets.R")
 source("./helper_functions/heatmaps.R")
-set.seed(42) # For reproducability
 
-N_WORKERS <- 3
-options(future.globals.maxSize=4*1024*1024^2)
 plan("multiprocess", workers = N_WORKERS)
 ```
 ## Load data from merge and clean pipeline
@@ -68,39 +65,39 @@ if (!file.exists(filename)) {
 
 ### Cluster 0
 ```{r}
-endo_markers[[0 + 1]]
+endo_markers[[0 + 1]][n_print,]
 ```
 
 ### Cluster 1
 ```{r}
-endo_markers[[1 + 1]]
+endo_markers[[1 + 1]][n_print,]
 ```
 
 ### Cluster 2
 ```{r}
-endo_markers[[2 + 1]]
+endo_markers[[2 + 1]][n_print,]
 ```
 
 ### Cluster 3
 ```{r}
-endo_markers[[3 + 1]]
+endo_markers[[3 + 1]][n_print,]
 ```
 
 ### Cluster 4
 ```{r}
-endo_markers[[4 + 1]]
+endo_markers[[4 + 1]][n_print,]
 ```
 
 ### Cluster 5
 ```{r}
-endo_markers[[5 + 1]]
+endo_markers[[5 + 1]][n_print,]
 ```
 
 
 ## Use known marker genes to determine the identity of the clusters
 
-Most of the markers are from here: https://elifesciences.org/articles/53072
-```{r}
+Most of the markers were also identified: https://elifesciences.org/articles/53072
+```{r, fig.width = 12}
 
 
 marker_genes <- c("Gpihbp1", "Kit", # Microvascular
@@ -121,9 +118,9 @@ heatmap_df <- heatmap_df %>% group_by(gene,cluster) %>% summarise(expression_mea
 # For brackets and text (see ./helper_functions/brackets.R)
 n_clusters <- max(as.numeric(Idents(endo)))
 text_vec <- list(c("Microvascular", 2),
-                 c("Car4+", 2),
+                 c("Car4+ EC", 2),
                  c("Prolif.", 2),
-                  c("maEC", 2),
+                 c("maEC", 2),
                  c("Venous maEC", 2),
                  c("Arterial maEC", 2),
                  c("Venous", 1),
@@ -154,48 +151,27 @@ endo_heatmap <- ggplot(heatmap_df, aes(x = gene, y = cluster, fill = expression_
 
 endo_heatmap
 
-pdf("./figures/endo/supp_cluster_markers.pdf", height = 5, width = 12)
-endo_heatmap
-dev.off()
+
+saveTiff("./figures/endo/supp_cluster_markers.tiff",
+         endo_heatmap,
+         width = 12, height = 5)
+
 ```
 
-
-## Fraction of the cells over time
-```{r}
-timepoint_factor <- factor(endo$timepoint)
-timepoint_ordered <- ordered(timepoint_factor, levels = unique(endo$timepoint))
-
-cell_ident_df <- data.frame(timepoint = timepoint_ordered,
-                            cluster = Idents(endo))
-
-prop_celltypes <- round(prop.table(table(cell_ident_df$timepoint, cell_ident_df$cluster), 1) * 100, 1)
-
-
-ggplot(melt(prop_celltypes), aes(y=value, x=Var1)) +
-        geom_area(aes(color = as.factor(Var2), group=as.factor(Var2), fill = as.factor(Var2))) +
-        xlab("Day") +
-        ylab("% of cells") +
-        labs(fill = "Cluster", color = "Cluster", group = "Cluster") +
-        scale_colour_manual(aesthetics = c("color", "fill"), values=color_category_20)
-```
-
-
-## Discard non-lung cell types, and combine similar cell types
-
-Cells that are similar tend to cluster based on time, however we will group them together because they are truly the same cell type.
+## Save relabeled cell-types for future use
 
 ```{r}
 endo_relabel <- endo
 # Label the cell-types
 levels(Idents(endo_relabel)) <- c("miEC", #0
-                                  "Car4+", #1
+                                  "Car4+ EC", #1
                                   "Proliferating miEC", #2
                                   "Venous maEC", #3
                                   "Arterial maEC", #4
                                   "Lymphatic" #5
 
 )
-Idents(endo_relabel) <- ordered(Idents(endo_relabel), c("Arterial maEC", "Venous maEC", "miEC", "Car4+", "Proliferating miEC", "Lymphatic"))
+Idents(endo_relabel) <- ordered(Idents(endo_relabel), c("Arterial maEC", "Venous maEC", "miEC", "Car4+ EC", "Proliferating miEC", "Lymphatic"))
 endo_relabel$bulk_celltype <- "Endothelium"
 
 filename <- "./data/endo_full_celltype_labels.rds"
@@ -208,7 +184,7 @@ if (!file.exists(filename)) {
 
 
 
-# Relabel clusters based on marker gene expression
+## Plot relabaled cells
 ```{r, fig.width = 12}
 
 renameFactorIdent <- function(obj, start, end){
@@ -216,7 +192,7 @@ renameFactorIdent <- function(obj, start, end){
   return(obj)
 }
 
-Idents(endo_relabel) <- renameFactorIdent(Idents(endo_relabel), "Car4+", "*Car4*+")
+Idents(endo_relabel) <- renameFactorIdent(Idents(endo_relabel), "Car4+ EC", "*Car4*+ EC")
 
 
 p_rename_cluster <- DimPlot(endo_relabel) + umap_theme() +
@@ -237,13 +213,14 @@ p_time <- DimPlot(endo_relabel, group.by = "timepoint") + umap_theme() +
 p_time + p_rename_cluster + plot_annotation("Endothelium", theme = theme(plot.title = element_text(size = 14)))
 
 
-pdf("./figures/endo/umap.pdf", width = 6, height = 4.5)
-p_rename_cluster + plot_annotation("Endothelium")
-dev.off()
+saveTiff("./figures/endo/umap.tiff",
+         p_rename_cluster + plot_annotation("Endothelium"),
+         width = 6, height = 4.5)
 
-pdf("./figures/endo/supp_umap.pdf", width = 18, height = 4.5)
-p_cluster + p_time + p_rename_cluster + plot_annotation("Endothelium", theme = theme(plot.title = element_text(size = 14)))
-dev.off()
+saveTiff("./figures/endo/supp_umap.tiff",
+         p_cluster + p_time + p_rename_cluster + plot_annotation("Endothelium", theme = theme(plot.title = element_text(size = 14))),
+         width = 18, height = 4.5)
+
 ```
 
 ## Re-confirm the markers in the relabeled clusters
@@ -262,31 +239,31 @@ if (!file.exists(filename)) {
 
 ### Arterial maEC (macrovascular)
 ```{r}
-endo_relabeled_markers[[0 + 1]]
+endo_relabeled_markers[[0 + 1]][n_print,]
 ```
 
 ### Venous maEC (macrovascular)
 ```{r}
-endo_relabeled_markers[[0 + 2]]
+endo_relabeled_markers[[0 + 2]][n_print,]
 ```
 ### miEC (microvascular)
 ```{r}
-endo_relabeled_markers[[0 + 3]]
+endo_relabeled_markers[[0 + 3]][n_print,]
 ```
 
 ### Car4+
 ```{r}
-endo_relabeled_markers[[0 + 4]]
+endo_relabeled_markers[[0 + 4]][n_print,]
 ```
 
 ### Lymphatic
 ```{r}
-endo_relabeled_markers[[0 + 5]]
+endo_relabeled_markers[[0 + 5]][n_print,]
 ```
 
 ### Proliferating miEC
 ```{r}
-endo_relabeled_markers[[0 + 6]]
+endo_relabeled_markers[[0 + 6]][n_print,]
 ```
 
 
@@ -323,15 +300,16 @@ endo_mountain <- ggplot(melt(prop_celltypes), aes(y=value, x=Var1)) +
 
 endo_mountain
 
-pdf("./figures/endo/labeled_mountain.pdf", width = 7, height = 4)
-endo_mountain
-dev.off()
+
+saveTiff("./figures/endo/labeled_mountain.tiff",
+         endo_mountain,
+         width = 7, height = 4)
 
 ```
 
 ## Car4 expression across the endothelium
 ```{r, fig.width = 6}
-car4_endo_plot <- FeaturePlot(endo, "Car4") +
+car4_endo_plot <- FeaturePlot(endo_relabel, "Car4") +
         featureplot_theme() +
         theme(aspect.ratio=1,
               plot.title = element_text(face = "italic", size = 14),
@@ -342,14 +320,15 @@ car4_endo_plot <- FeaturePlot(endo, "Car4") +
 
 car4_endo_plot
 
-pdf("./figures/endo/endo_car4_plot.pdf", width = 6, height = 4.5)
-car4_endo_plot
-dev.off()
+saveTiff("./figures/endo/endo_car4_plot.tiff",
+         car4_endo_plot,
+         width = 6, height = 4.5)
+
 ```
 
 ## Kdr expression across the endothelium
 ```{r, fig.width = 6}
-kdr_endo_plot <- FeaturePlot(endo, "Kdr", pt.size = 0.5) +
+kdr_endo_plot <- FeaturePlot(endo_relabel, "Kdr", pt.size = 0.5) +
         featureplot_theme() +
         theme(aspect.ratio=1,
               plot.title = element_text(face = "italic", size = 18),
@@ -360,9 +339,10 @@ kdr_endo_plot <- FeaturePlot(endo, "Kdr", pt.size = 0.5) +
 
 kdr_endo_plot
 
-pdf("./figures/endo/endo_car4_plot.pdf", width = 6, height = 4.5)
-kdr_endo_plot
-dev.off()
+saveTiff("./figures/endo/endo_kdr_plot.tiff",
+         kdr_endo_plot,
+         width = 6, height = 4.5)
+
 ```
 
 ## Integrating velocity measures
@@ -370,24 +350,15 @@ dev.off()
 
 ```{r}
 endo_relabel$car4_prob <- readRDS("./velocity/endo/data/endo_car4_prob.rds")$to_Car4
-```
-```{r}
-FeaturePlot(subset(subset(endo_relabel, car4_prob > 0.2), idents = "Car4+", invert = TRUE), "car4_prob") +
-        featureplot_theme() +
-        theme(aspect.ratio=1) +
-        scale_color_viridis(name = "Expression", direction = 1)
-```
-
-```{r}
 endo_relabel$car4_originators <- "no"
 endo_relabel$car4_originators[endo_relabel$car4_prob > 0.2 & Idents(endo_relabel) != "Car4"] <- "yes"
 ```
 
 ```{r}
 car4_originator_markers <- FindMarkers(endo_relabel, group.by = "car4_originators", "yes", "no", test.use = "MAST")
+(car4_originator_markers %>% arrange(-avg_logFC))[n_print,]
 ```
 
 ```{r}
-car4_originator_markers %>% arrange(-avg_logFC)
 write.xlsx(car4_originator_markers, file = "./figures/endo/Table S2 - Commitment to Car4.xlsx", rowNames = TRUE)
 ```

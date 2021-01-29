@@ -48,3 +48,7 @@ Icon
 .Trashes
 .VolumeIcon.icns
 .com.apple.timemachine.donotpresent
+
+
+# Temprorary knitting files
+*.html
