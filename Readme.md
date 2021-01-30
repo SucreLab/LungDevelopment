@@ -20,7 +20,7 @@ in an renv. Details can be found in the [renv.lock](./renv.lock) file.
 #### [Endothelium](./endothelium/all_endo.md)
 
 
-#### [Mesenchyme](./mesenchye/all_meso.md)
+#### [Mesenchyme](./mesenchyme/all_meso.md)
 
 #### [Combined analysis](./merge_and_clean/all_cells.md)
 
