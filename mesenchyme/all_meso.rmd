@@ -561,7 +561,7 @@ saveWorkbook(wb_myo_markers, file = "./figures/meso/myo_highres_marker_genes.xls
 ```
 
 ```{r}
-wnt5a_all_myo <- VlnPlot(subset(meso_relabel, ident = c("Myofibroblast", "Prenatal Myofibroblast")), "Wnt5a", group.by = "timepoint") +ggtitle("All myofibroblasts")
+wnt5a_all_myo <- VlnPlot(subset(meso_relabel, ident = c("Myofibroblast", "Proliferating myofibroblast")), "Wnt5a", group.by = "timepoint") +ggtitle("All myofibroblasts")
 wnt5a_mature_myo <-  VlnPlot(subset(meso_highres, ident = 0), "Wnt5a", group.by = "timepoint") + ggtitle("Mature myofibroblasts")
 wnt5a_proliferating_myo <- VlnPlot(subset(meso_highres, ident = 8), "Wnt5a", group.by = "timepoint") + ggtitle("Proliferating myofibroblasts")
 wnt5a_e18_myo <- VlnPlot(subset(meso_highres, ident = 6), "Wnt5a", group.by = "timepoint") + ggtitle("'E18' myofibroblasts")

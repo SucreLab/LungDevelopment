@@ -12,6 +12,8 @@
 
 # Output figures
 *.ai
+*.tif
+*.tiff
 *.pdf
 *.xlsx
 *.iml

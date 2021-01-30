@@ -456,78 +456,12 @@ saveTiff("./figures/all/heatmap_allgenes.tiff", all_heatmap,
          width = 9, height = 7)
 ```
 
-# Elastin Heatmaps!!
-
-
-```{r}
-
-Idents(all_cells) <- all_cells$cell_subtype
-marker_genes <- c('Eln', 'Fbn1', 'Fbn2', 'Fbln1', 'Fbln2', 'Fbln3', 'Fbln4', 'Fbln5',
-                  'Emilin1', 'Magp1', 'Magp2', 'Ltbp1', 'Ltbp2', 'Ltbp3', 'Ltbp4', 'Lox',
-                  'Loxl1', 'Loxl2', 'Loxl3', 'Loxl4')
-
-# Absent: Fbln3, Fbln4, Magp1, Magp2
-# todo: Make these zeros
-
-heatmap_df <- make_heatmap_df(subset(all_cells, idents = c("Prenatal Myofibroblast", "Myofibroblast")), marker_genes, sort_clusters = FALSE)
-
-heatmap_df <- heatmap_df %>% group_by(gene,time) %>% summarise(expression_mean=mean(expression))
-
-addBackZeros <- function(df, markers){
-  out <- do.call(rbind, lapply(markers[!(markers %in% unique(df$gene))], function(x){
-    t(do.call(cbind, list(sapply(unique(levels(df$time)), function(y){
-      c(x, y, 0)
-    }))))
-  }))
-  colnames(out) <- colnames(df)
-  out <- as.data.frame(out)
-  out$expression_mean <- as.double(out$expression_mean)
-  out$time <- ordered(out$time, levels(df$time))
-  rbind(df, out)
-}
-
-n_clusters <- max(as.numeric(Idents(subset(all_cells, idents = c("Prenatal Myofibroblast", "Myofibroblast")))))
-#grid.brackets()
-# Look in to grid.brackets to customize the brackets. Can prob make a function for this.
-myo_matrix_plot <- ggplot(addBackZeros(heatmap_df, marker_genes), aes(x = gene, y = time, fill = expression_mean)) +
-        geom_tile(color = "white", size = 0.1) +
-        scale_fill_distiller(palette = "Blues", direction = 1, trans = "sqrt", name = "Expression", limits = c(0,5)) +
-        #ggtitle("Expression") +
-        coord_fixed(ratio = 0.6) +
-        theme(panel.background = element_rect(fill = "white"),
-              panel.grid.major = element_blank(),
-              panel.grid.minor = element_blank(),
-              axis.title.x  = element_blank(),
-              legend.text=element_text(size=14),
-              legend.title=element_text(size=14),
-              axis.text.x  = element_text(size=14, angle = 45, vjust = 1, hjust=1, face = "italic"),
-              axis.text.y = element_text(size=14),
-              axis.title.y = element_text(size=14),
-              legend.key.size = unit(0.8, "cm"),
-              plot.title = element_text(size=14)
-        ) +
-        labs(y = "Timepoint") +
-        ggtitle("Expression patterns in Myofibroblasts")
-
-
-myo_matrix_plot
-
-
-saveTiff("./figures/meso/myo_matrix.tiff", myo_matrix_plot,
-         width = 12, height = 4)
-
-```
+## Expression patterns in AT1 cells
 
 ```{r}
-#marker_genes <- c('Eln', 'Fbn1', 'Fbn2', 'Fbln1', 'Fbln2', 'Fbln3', 'Fbln4', 'Fbln5',
-#                  'Emilin1', 'Magp1', 'Magp2', 'Ltbp1', 'Ltbp2', 'Ltbp3', 'Ltbp4', 'Lox',
-#                  'Loxl1', 'Loxl2', 'Loxl3', 'Loxl4')
-
 marker_genes <- c('Eln', 'Fbln5',
                   'Col4a1', 'Col4a2', 'Col4a3', 'Col4a4', 'Col4a5', 'Col4a6', 'Hspg2', 'Lama1', 'Lama3', 'Lama5', 'Lamb1', 'Lamb2', 'Lamb3', 'Lamc1', 'Lamc2')
 
-# Absent: Fbln3, Fbln4, Magp1, Magp2
-# todo: Make these zeros
 
 heatmap_df <- make_heatmap_df(subset(subset(all_cells, idents = "Type I"), timepoint %in% c("E12", "E15"), invert = TRUE), marker_genes, sort_clusters = FALSE)
 
@@ -639,6 +573,7 @@ meso_melt_prop_celltypes <- melt(prop_celltypes)
 levels(meso_melt_prop_celltypes$Var2)[levels(meso_melt_prop_celltypes$Var2) == "Wnt2+"] <- "*Wnt2*+ FB"
 levels(meso_melt_prop_celltypes$Var2)[levels(meso_melt_prop_celltypes$Var2) == "Proliferating Wnt2+"] <- "Proliferating *Wnt2*+ FB"
 levels(meso_melt_prop_celltypes$Var2)[levels(meso_melt_prop_celltypes$Var2) == "Neuron"] <- "Other"
+levels(meso_melt_prop_celltypes$Var2)[levels(meso_melt_prop_celltypes$Var2) == "Prenatal Myofibroblast"] <- "Proliferating myofibroblast"
 unique(meso_melt_prop_celltypes$Var2)
 
 meso_melt_prop_celltypes$Var2 <- ordered(as.factor(meso_melt_prop_celltypes$Var2), c("Proliferating *Wnt2*+ FB", "*Wnt2*+ FB", "Proliferating myofibroblast", "Myofibroblast", "Adventitial fibroblast", "Pericyte", "Mesothelium", "Smooth muscle", "Other"))
