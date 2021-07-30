@@ -32,6 +32,7 @@ all_cells <- readRDS("./data/merged_alldata_noGm42418_sct_p7b_integrated_retrans
 all_cells$cell_subtype[all_cells$cell_subtype == "Matrix fibroblast"] <- "Adventitial fibroblast"
 all_cells$cell_subtype[all_cells$cell_subtype == "Prenatal Wnt2+"] <- "Proliferating Wnt2+"
 all_cells$cell_subtype[all_cells$cell_subtype == "Proliferating myofibroblast"] <- "Proliferating myofibroblast"
+all_cells$cell_subtype[all_cells$cell_subtype == "Neuron"] <- "Other"
 
 print(ncol(all_cells))
 ```
@@ -82,7 +83,7 @@ endo_fortify <- fortify.Seurat(subset(all_cells, bulk_celltype == "Endothelium")
 meso_fortify <- fortify.Seurat(subset(all_cells, bulk_celltype == "Mesenchyme"))
 
 
-epi_fortify$cell_subtype <- ordered(as.factor(epi_fortify$cell_subtype), c("Primordial", "Type I", "Type II", "Cilliated", "Secretory", "Transitional", "Neuroendocrine"))
+epi_fortify$cell_subtype <- ordered(as.factor(epi_fortify$cell_subtype), c("Primordial", "Transitional", "Type I", "Type II", "Cilliated", "Secretory", "Neuroendocrine"))
 endo_fortify$cell_subtype <- ordered(endo_fortify$cell_subtype, c("Arterial maEC", "Venous maEC", "miEC", "Car4+", "Proliferating", "Lymphatic"))
 meso_fortify$cell_subtype <- ordered(as.factor(meso_fortify$cell_subtype), c("Proliferating Wnt2+", "Wnt2+", "Proliferating Myofibroblast", "Myofibroblast", "Adventitial fibroblast", "Pericyte", "Mesothelium", "Smooth muscle", "Neuron"))
 
@@ -725,4 +726,256 @@ saveTiff("./figures/all/all_mountains.tiff",
          epi_mountain + endo_mountain + meso_mountain + plot_layout(ncol = 1, nrow = 3) & theme(legend.justification = "left", plot.margin = unit(c(5.5,5.5,35,5.5), "pt")),
          width = 8, height = 12)
 
+```
+```{r}
+p64_counts <- merge(CreateSeuratObject(counts = Read10X("./data/raw_post_soupx/Adult/Adult_c_counts"), project = "P64a"),
+                    CreateSeuratObject(counts = Read10X("./data/raw_post_soupx/Adult_2/Adult_2_c_counts"), project = "P64b"))
+p64_counts$orig.ident <- Idents(p64_counts)
+p64_counts <- PercentageFeatureSet(p64_counts, pattern = "^mt-", col.name = "percent.mt")
+p64_counts <- subset(p64_counts, subset = percent.mt < 10 & percent.mt >0.5 & nFeature_RNA >700)
+```
+
+```{r}
+p64_counts <- SCTransform(p64_counts, variable.features.n = 2000,
+                          conserve.memory = TRUE, batch_var = "orig.ident",
+                          vars.to.regress = c("percent.mt"),
+                          method = "glmGamPoi")
+```
+
+```{r}
+anchors <- FindTransferAnchors(reference = all_cells, query = p64_counts,
+                                        dims = 1:30)
+predictions <- TransferData(anchorset = anchors, refdata = all_cells$cell_subtype,
+                            dims = 1:30)
+p64_counts <- AddMetaData(p64_counts, metadata = predictions)
+```
+
+```{r}
+DimPlot(p64_counts)
+```
+
+```{r}
+VlnPlot(p64_counts, c("Sftpc", "Foxj1", "Scgb1a1", "Hopx"), group.by = "predicted.id")
+```
+
+```{r}
+p64_counts <- cluster_pca_umap(p64_counts, k_param = 20, dims_umap = 1:20, dims_neighbors = 1:20, cluster_res = 0.1) # Note, this breaks if future is set to plan: multiprocess
+
+
+p_cluster <- DimPlot(p64_counts) + umap_theme() +
+  scale_colour_manual(name = "Cluster", values = color_category_20) +
+  theme(aspect.ratio=1)
+p_cluster
+```
+
+```{r}
+ncol(subset(p64_counts, Epcam > 1))
+ncol(p64_counts)
+FeaturePlot(p64_counts, "Epcam") + featureplot_theme()
+  theme(aspect.ratio=1)
+```
+
+
+
+```{r}
+p64_counts$timepoint <- "P64"
+Idents(p64_counts) <- p64_counts$predicted.id
+
+
+#Idents(p64_counts) <- ordered(Idents(p64_counts), c("Primordial", "Type I", "Type II", "Cilliated", "Secretory", "Transitional", "Neuroendocrine",
+#                                                    "Arterial maEC", "Venous maEC", "miEC", "Car4+", "Proliferating", "Lymphatic",
+#                                                    "Proliferating Wnt2+", "Wnt2+", "Proliferating Myofibroblast", "Myofibroblast", "Adventitial fibroblast", "Pericyte", "Mesothelium", "Smooth muscle", "Neuron"))
+
+Idents(p64_counts) <- ordered(Idents(p64_counts), c("Type I", "Type II", "Cilliated", "Secretory", "Transitional", "Neuroendocrine",
+                                                    "Arterial maEC", "Venous maEC", "miEC", "Car4+", "Proliferating", "Lymphatic",
+                                                    "Proliferating Wnt2+", "Wnt2+", "Prenatal Myofibroblast", "Myofibroblast", "Adventitial fibroblast", "Pericyte", "Mesothelium", "Smooth muscle", "Neuron"))
+
+marker_genes <- c("Itga6", "Itgb4", "Itgb1")
+
+Idents(p64_counts) <- renameFactorIdent(Idents(p64_counts), "Neuron", "Other")
+Idents(p64_counts) <- renameFactorIdent(Idents(p64_counts), "Prenatal Myofibroblast", "Proliferating myofibroblast")
+
+heatmap_df <- make_heatmap_df(p64_counts, marker_genes, sort_clusters = FALSE)
+
+heatmap_df <- heatmap_df %>% group_by(gene,cluster, time) %>% summarise(expression_mean=mean(expression),
+                                                                        frac_pos=(sum(expression > 0) * 100 / length(expression)))
+#n_clusters <- max(length(unique(heatmap_df$cluster)))
+n_clusters <- length(marker_genes)
+
+p64_heatmap <- ggplot(heatmap_df,
+                      aes(x = cluster, y = gene, color = expression_mean, size = frac_pos)) +
+  geom_point(shape = 16) +
+  scale_color_distiller(palette = "Blues", direction = 1, name = "Expression", limits = c(0,max(heatmap_df$expression_mean))) +
+  scale_size(range = c(3, 9), name = "% expressing") +
+  coord_fixed(ratio = 1, xlim = NULL, ylim = c(1,n_clusters), expand = TRUE, clip = "off") +
+  theme(plot.margin=unit(c(1.5,1,1,1),"cm")) +
+  theme(panel.background = element_rect(fill = "white", colour = "black", size = 0.5),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.title.x  = element_blank(),
+        axis.text.x = element_text(size = 10, color = "black"),
+        axis.text.y = element_markdown(size = 10, color = "black", face = "italic"),
+        legend.box = "horizontal"
+  ) +
+  labs(y = "Gene") +
+  theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+p64_heatmap
+
+
+saveTiff("./figures/plosa/p64_all.tiff", p64_heatmap,
+         width = 10, height = 5, dpi = 600)
+```
+
+```{r}
+p64_counts$timepoint <- "P64"
+Idents(p64_counts) <- p64_counts$predicted.id
+
+#Idents(p64_counts) <- ordered(Idents(p64_counts), c("Primordial", "Type I", "Type II", "Cilliated", "Secretory", "Transitional", "Neuroendocrine",
+#                                                    "Arterial maEC", "Venous maEC", "miEC", "Car4+", "Proliferating", "Lymphatic",
+#                                                    "Proliferating Wnt2+", "Wnt2+", "Proliferating Myofibroblast", "Myofibroblast", "Adventitial fibroblast", "Pericyte", "Mesothelium", "Smooth muscle", "Neuron"))
+
+Idents(p64_counts) <- ordered(Idents(p64_counts), c("Type I", "Type II", "Cilliated", "Secretory", "Transitional", "Neuroendocrine",
+                                                    "Arterial maEC", "Venous maEC", "miEC", "Car4+", "Proliferating", "Lymphatic",
+                                                    "Proliferating Wnt2+", "Wnt2+", "Prenatal Myofibroblast", "Myofibroblast", "Adventitial fibroblast", "Pericyte", "Mesothelium", "Smooth muscle", "Neuron"))
+
+marker_genes <- c("Itga6", "Itgb4", "Itgb1")
+
+
+levels(Idents(p64_counts)) <- c(levels(Idents(p64_counts))[1:6], rep("Endothelium", 6), rep("Mesenchyme", 9))
+heatmap_df <- make_heatmap_df(p64_counts, marker_genes, sort_clusters = FALSE)
+
+heatmap_df <- heatmap_df %>% group_by(gene,cluster, time) %>% summarise(expression_mean=mean(expression),
+                                                                        frac_pos=(sum(expression > 0) * 100 / length(expression)))
+#n_clusters <- max(length(unique(heatmap_df$cluster)))
+n_clusters <- length(marker_genes)
+
+p64_heatmap <- ggplot(heatmap_df,
+                      aes(x = cluster, y = gene, color = expression_mean, size = frac_pos)) +
+  geom_point(shape = 16) +
+  scale_color_distiller(palette = "Blues", direction = 1, name = "Expression", limits = c(0,max(heatmap_df$expression_mean))) +
+  scale_size(range = c(3, 9), name = "% expressing") +
+  coord_fixed(ratio = 1, xlim = NULL, ylim = c(1,n_clusters), expand = TRUE, clip = "off") +
+  theme(plot.margin=unit(c(1.5,1,1,1),"cm")) +
+  theme(panel.background = element_rect(fill = "white", colour = "black", size = 0.5),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.title.x  = element_blank(),
+        axis.text.x = element_text(size = 10, color = "black"),
+        axis.text.y = element_markdown(size = 10, color = "black", face = "italic"),
+        legend.box = "horizontal"
+  ) +
+  labs(y = "Gene") +
+  theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+p64_heatmap
+
+
+saveTiff("./figures/plosa/p64_small.tiff", p64_heatmap,
+         width = 6, height = 5, dpi = 600)
+```
+
+
+```{r}
+p14_counts <- subset(all_cells, timepoint == "P14")
+p14_counts$timepoint <- "P14"
+Idents(p14_counts) <- p14_counts$cell_subtype
+
+
+Idents(p14_counts) <- ordered(Idents(p14_counts), c("Primordial", "Type I", "Type II", "Cilliated", "Secretory", "Transitional", "Neuroendocrine",
+                                                    "Arterial maEC", "Venous maEC", "miEC", "Car4+", "Proliferating", "Lymphatic",
+                                                    "Proliferating Wnt2+", "Wnt2+", "Prenatal Myofibroblast", "Myofibroblast", "Adventitial fibroblast", "Pericyte", "Mesothelium", "Smooth muscle", "Neuron"))
+
+#Idents(p64_counts) <- ordered(Idents(p64_counts), c("Type I", "Type II", "Cilliated", "Secretory", "Transitional", "Neuroendocrine",
+#                                                    "Arterial maEC", "Venous maEC", "miEC", "Car4+", "Proliferating", "Lymphatic",
+#                                                    "Proliferating Wnt2+", "Wnt2+", "Prenatal Myofibroblast", "Myofibroblast", "Adventitial fibroblast", "Pericyte", "Mesothelium", "Smooth muscle", "Neuron"))
+Idents(p14_counts) <- renameFactorIdent(Idents(p14_counts), "Neuron", "Other")
+Idents(p14_counts) <- renameFactorIdent(Idents(p14_counts), "Prenatal Myofibroblast", "Proliferating myofibroblast")
+
+marker_genes <- c("Itga6", "Itgb4", "Itgb1")
+
+
+heatmap_df <- make_heatmap_df(p14_counts, marker_genes, sort_clusters = FALSE)
+
+heatmap_df <- heatmap_df %>% group_by(gene,cluster, time) %>% summarise(expression_mean=mean(expression),
+                                                                        frac_pos=(sum(expression > 0) * 100 / length(expression)))
+#n_clusters <- max(length(unique(heatmap_df$cluster)))
+n_clusters <- length(marker_genes)
+
+p14_heatmap <- ggplot(heatmap_df,
+                      aes(x = cluster, y = gene, color = expression_mean, size = frac_pos)) +
+  geom_point(shape = 16) +
+  scale_color_distiller(palette = "Blues", direction = 1, name = "Expression", limits = c(0,max(heatmap_df$expression_mean))) +
+  scale_size(range = c(3, 9), name = "% expressing") +
+  coord_fixed(ratio = 1, xlim = NULL, ylim = c(1,n_clusters), expand = TRUE, clip = "off") +
+  theme(plot.margin=unit(c(1.5,1,1,1),"cm")) +
+  theme(panel.background = element_rect(fill = "white", colour = "black", size = 0.5),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.title.x  = element_blank(),
+        axis.text.x = element_text(size = 10, color = "black"),
+        axis.text.y = element_markdown(size = 10, color = "black", face = "italic"),
+        legend.box = "horizontal"
+  ) +
+  labs(y = "Gene") +
+  theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+p14_heatmap
+
+
+saveTiff("./figures/plosa/p14_all.tiff", p14_heatmap,
+         width = 10, height = 5, dpi = 600)
+```
+
+
+```{r}
+p14_counts <- subset(all_cells, timepoint == "P14")
+p14_counts$timepoint <- "P14"
+Idents(p14_counts) <- p14_counts$cell_subtype
+
+
+Idents(p14_counts) <- ordered(Idents(p14_counts), c("Primordial", "Type I", "Type II", "Cilliated", "Secretory", "Transitional", "Neuroendocrine",
+                                                    "Arterial maEC", "Venous maEC", "miEC", "Car4+", "Proliferating", "Lymphatic",
+                                                    "Proliferating Wnt2+", "Wnt2+", "Prenatal Myofibroblast", "Myofibroblast", "Adventitial fibroblast", "Pericyte", "Mesothelium", "Smooth muscle", "Neuron"))
+
+#Idents(p64_counts) <- ordered(Idents(p64_counts), c("Type I", "Type II", "Cilliated", "Secretory", "Transitional", "Neuroendocrine",
+#                                                    "Arterial maEC", "Venous maEC", "miEC", "Car4+", "Proliferating", "Lymphatic",
+#                                                    "Proliferating Wnt2+", "Wnt2+", "Prenatal Myofibroblast", "Myofibroblast", "Adventitial fibroblast", "Pericyte", "Mesothelium", "Smooth muscle", "Neuron"))
+Idents(p14_counts) <- renameFactorIdent(Idents(p14_counts), "Neuron", "Other")
+Idents(p14_counts) <- renameFactorIdent(Idents(p14_counts), "Prenatal Myofibroblast", "Proliferating myofibroblast")
+
+levels(Idents(p14_counts)) <- c(levels(Idents(p14_counts))[1:7], rep("Endothelium", 6), rep("Mesenchyme", 9))
+marker_genes <- c("Itga6", "Itgb4", "Itgb1")
+
+
+heatmap_df <- make_heatmap_df(p14_counts, marker_genes, sort_clusters = FALSE)
+
+heatmap_df <- heatmap_df %>% group_by(gene,cluster, time) %>% summarise(expression_mean=mean(expression),
+                                                                        frac_pos=(sum(expression > 0) * 100 / length(expression)))
+#n_clusters <- max(length(unique(heatmap_df$cluster)))
+n_clusters <- length(marker_genes)
+
+p14_heatmap <- ggplot(heatmap_df,
+                      aes(x = cluster, y = gene, color = expression_mean, size = frac_pos)) +
+  geom_point(shape = 16) +
+  scale_color_distiller(palette = "Blues", direction = 1, name = "Expression", limits = c(0,max(heatmap_df$expression_mean))) +
+  scale_size(range = c(3, 9), name = "% expressing") +
+  coord_fixed(ratio = 1, xlim = NULL, ylim = c(1,n_clusters), expand = TRUE, clip = "off") +
+  theme(plot.margin=unit(c(1.5,1,1,1),"cm")) +
+  theme(panel.background = element_rect(fill = "white", colour = "black", size = 0.5),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.title.x  = element_blank(),
+        axis.text.x = element_text(size = 10, color = "black"),
+        axis.text.y = element_markdown(size = 10, color = "black", face = "italic"),
+        legend.box = "horizontal"
+  ) +
+  labs(y = "Gene") +
+  theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+p14_heatmap
+
+
+saveTiff("./figures/plosa/p14_small.tiff", p14_heatmap,
+         width = 6, height = 5, dpi = 600)
 ```

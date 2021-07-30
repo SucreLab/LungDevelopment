@@ -10,6 +10,7 @@ output: rmarkdown::github_document
 ## Load libraries and helper functions
 ```{r, results="hide", message = FALSE}
 setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
 source("./helper_functions/globals.R")
 source("./helper_functions/libraries.R")
 

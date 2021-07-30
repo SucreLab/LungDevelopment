@@ -51,6 +51,89 @@ p_cluster + p_time + plot_annotation("Endothelium")
 ```
 
 
+```{r}
+car4_plot <- FeaturePlot(endo, c("Car4")) +
+  featureplot_theme() +
+  theme(aspect.ratio=1,
+        plot.title = element_text(face = "italic", size = 14),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12)
+  ) +
+  scale_color_viridis(name = "Expression", direction = -1)
+
+apln_plot <- FeaturePlot(endo, c("Apln")) +
+  featureplot_theme() +
+  theme(aspect.ratio=1,
+        plot.title = element_text(face = "italic", size = 14),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12)
+  ) +
+  scale_color_viridis(name = "Expression", direction = -1)
+
+car4_plot + apln_plot + plot_layout(ncol = 2)
+```
+
+```{r}
+FeaturePlot(endo, c("Ackr3")) +
+  featureplot_theme() +
+  theme(aspect.ratio=1,
+        plot.title = element_text(face = "italic", size = 14),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12)
+  ) +
+  scale_color_viridis(name = "Expression", direction = -1)
+```
+
+
+```{r}
+FeaturePlot(endo, c("Csp1")) +
+  featureplot_theme() +
+  theme(aspect.ratio=1,
+        plot.title = element_text(face = "italic", size = 14),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12)
+  ) +
+  scale_color_viridis(name = "Expression", direction = -1)
+```
+
+
+
+## UMAP and clustering
+```{r, fig.width = 12}
+plan("sequential")
+endo_dfrank <- endo
+# Make the tiempoints an ordered factor, so they are displayed consistantly
+endo_dfrank$timepoint <- ordered(as.factor(endo_dfrank$timepoint), unique(endo_dfrank$timepoint))
+
+endo_dfrank <- cluster_pca_umap(endo_dfrank, k_param = 20, dims_umap = 1:20, dims_neighbors = 1:20, cluster_res = 1) # Note, this breaks if future is set to plan: multiprocess
+
+
+p_df_cluster <- DimPlot(endo_dfrank) + umap_theme() +
+  scale_colour_manual(name = "Cluster", values = color_category_20) +
+  theme(aspect.ratio=1)
+p_df_time <- DimPlot(endo_dfrank, group.by = "timepoint") + umap_theme() +
+  scale_colour_manual(name = "Timepoint", values = color_scanpy_default)+
+  theme(aspect.ratio=1)
+
+p_df_cluster + p_df_time + plot_annotation("Endothelium")
+
+```
+
+
+```{r}
+DimPlot(subset(endo_dfrank, timepoint == "E12")) + umap_theme() +
+  scale_colour_manual(name = "Timepoint", values = color_category_20)+
+  theme(aspect.ratio=1)
+```
+
+```{r}
+intermediate_cell_markers <- FindMarkers(endo_dfrank, 16, NULL, test.use = "MAST")
+#intermediate_cell_markers$gene <- rownames(intermediate_cell_markers)
+intermediate_cell_markers
+write.xlsx(intermediate_cell_markers, file = "/Users/negretn/postdoc/markers_art_vein_intermediate.xlsx", rowNames = TRUE)
+```
+
+
 ## Identify marker genes in each cluster
 ```{r}
 plan("multiprocess", workers = N_WORKERS)
@@ -292,7 +375,8 @@ endo_mountain <- ggplot(melt(prop_celltypes), aes(y=value, x=Var1)) +
               axis.title.y = element_text(size=14),
               panel.grid.major = element_blank(),
               panel.grid.minor = element_blank(),
-              panel.background = element_rect(fill = "white")
+              panel.background = element_rect(fill = "white"),
+              aspect.ratio = 1
         ) +
         scale_x_discrete(expand = c(.01, .01)) +
         scale_y_continuous(expand = c(.01,.01)) +
@@ -305,6 +389,10 @@ saveTiff("./figures/endo/labeled_mountain.tiff",
          endo_mountain,
          width = 7, height = 4)
 
+```
+
+```{r}
+ggsave("./for_alice_apln.tiff", p_rename_cluster + endo_mountain + car4_plot + apln_plot +  plot_layout(ncol = 2), scale = 1.25)
 ```
 
 ## Car4 expression across the endothelium

@@ -11,3 +11,9 @@ saveRDS(epi, file = "./data/not_cleaned/endo_full.rds")
 meso <- merge(subset(readRDS("../data/input/prenatal_mesenchyme_072620.rds"), subset = timepoint != "E18"),
               readRDS(file = "../data/input/postnatal_mesenchyme_072720.rds"))
 saveRDS(epi, file = "./data/not_cleaned/meso_full.rds")
+
+
+
+
+at1_cells <- subset(epi, "Hopx" > 1)
+DimPlot(at1_cells)
