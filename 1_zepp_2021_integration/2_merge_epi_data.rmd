@@ -1,0 +1,120 @@
+---
+title: "scSEQ analysis of developing lung cells - revision"
+author: Nick Negretti
+date: 8/2/21
+output: rmarkdown::github_document
+---
+
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE, load-libraries}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 16
+plan("multiprocess", workers = N_WORKERS)
+```
+
+```{r}
+epi_relabel <- readRDS("./data/20210802_epi_devo_data_sct_labeled.rds")
+epi_relabel
+
+epi_relabel$celltype <- ordered(as.factor(epi_relabel$celltype),
+                                c("Early Epithelium",
+                                  "Transitional",
+                                  "AT1",
+                                  "AT2",
+                                  "Mki67+ AT2",
+                                  "Ciliated",
+                                  "Secretory",
+                                  "Neuroendocrine"
+                                ))
+
+epi_relabel$lab <- "Sucre"
+
+zepp_epi <- readRDS("./data/20210802_zepp_epi_data_sct.rds")
+```
+
+```{r}
+DefaultAssay(epi_relabel) <- "RNA"
+combined_data <- merge(DietSeurat(epi_relabel, assays = "RNA"), zepp_epi)
+```
+
+```{r}
+
+combined_data <- SCTransform(combined_data, variable.features.n = 2000,
+                         batch_var = "orig.ident",
+                         conserve.memory = TRUE,
+                         vars.to.regress = c("percent.mt"),
+                         method = 'glmGamPoi',
+                         ncells = NULL)
+
+combined_data <- cluster_pca_umap(combined_data, dims_umap = 1:15, dims_neighbors = 1:15, cluster_res = 1.6)
+```
+
+```{r}
+marker_genes <- c("Hbb-bs", "Epcam", "Foxj1", "Scgb1a1", "Scgb3a2", "Abca3", "Hopx", "Col1a1", "Dcn", "Lum", "Acta2", "Wnt2", "Wnt5a", "Lgr6", "Pdgfra", "Pdgfrb", "Cspg4", "Wt1", "Pecam1", "Ccl21a", "Vwf", "Nrg1", "Plvap", "Car4", "Mki67", "Tnnt2", "Myl7", "Ascl1", "Ptprc")
+DotPlot(combined_data, features = marker_genes) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+
+```{r}
+marker_genes <- c("Mdk", "Mki67", # Early Epithelium
+                  "Cdkn1a", "Krt8", # Transitional?
+                  "Hopx", "Aqp5", #AT1
+                  "Sftpa1", "Sftpc", # AT2
+                  "Foxj1", "Dynlrb2", # Ciliated
+                  "Scgb1a1", "Scgb3a2", # Secretory
+                  "Ascl1", "Scg5" #Neuroendocrine
+)
+DotPlot(combined_data, features = marker_genes) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+
+```{r}
+DimPlot(combined_data, group.by = "lab")
+DimPlot(combined_data, group.by = "timepoint")
+DimPlot(combined_data, label = TRUE)
+```
+```{r}
+data_list <- SplitObject(combined_data, split.by = "lab")
+data_list <- lapply(X = data_list, FUN = SCTransform,
+                    variable.features.n = 2000,
+                    conserve.memory = TRUE,
+                    vars.to.regress = c("percent.mt"),
+                    method = 'glmGamPoi',
+                    ncells = NULL)
+features <- SelectIntegrationFeatures(object.list = data_list, nfeatures = 2000)
+data_list <- PrepSCTIntegration(object.list = data_list, anchor.features = features)
+```
+
+```{r}
+data_anchors <- FindIntegrationAnchors(object.list = data_list, normalization.method = "SCT",
+                                         anchor.features = features)
+data_integrated_sct <- IntegrateData(anchorset = data_anchors, normalization.method = "SCT")
+
+```
+
+```{r}
+data_integrated_sct <- cluster_pca_umap(data_integrated_sct, dims_umap = 1:15, dims_neighbors = 1:15, cluster_res = 1.6)
+```
+
+```{r}
+DimPlot(data_integrated_sct, group.by = "lab")
+DimPlot(data_integrated_sct, group.by = "timepoint")
+DimPlot(data_integrated_sct, label = TRUE)
+```
+
+```{r}
+saveRDS(data_integrated_sct, "./data/20210802_integrated_zepp_epi_data_sct.rds", compress = "bzip2")
+```

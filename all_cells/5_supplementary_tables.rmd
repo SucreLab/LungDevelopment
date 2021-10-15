@@ -1,0 +1,58 @@
+---
+title: "scSEQ analysis of all lung cells"
+author: Nick Negretti
+date: 9/30/20
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung epithelium
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 12
+options(future.globals.maxSize=12*1024*1024^2)
+plan("multiprocess", workers = N_WORKERS)
+
+```
+
+```{r}
+
+meso_markers <- readRDS("./data/20210802_meso_markers_celltype.rds")
+endo_markers <- readRDS("./data/20210802_endo_devo_data_sct_labeled_markers.rds")
+epi_markers <- readRDS("./data/20210802_epi_devo_data_sct_labeled_markers.rds")
+
+```
+
+```{r}
+names(epi_markers) <- paste0("Epi - ", names(epi_markers))
+names(endo_markers) <- paste0("Endo - ", names(endo_markers))
+names(meso_markers) <- paste0("Meso - ", names(meso_markers))
+```
+
+```{r}
+all_markers <- c(epi_markers, endo_markers, meso_markers)
+```
+```{r}
+
+wb_markers_names <- names(all_markers)
+wb_markers <- createWorkbook()
+for (idx in seq_along(all_markers)){
+  addWorksheet(wb_markers, wb_markers_names[idx])
+  writeData(wb_markers, wb_markers_names[idx], all_markers[[idx]], rowNames = TRUE)
+}
+saveWorkbook(wb_markers, file = "./data/figures/Table S1 - Cluster Markers.xlsx", overwrite = TRUE)
+
+```

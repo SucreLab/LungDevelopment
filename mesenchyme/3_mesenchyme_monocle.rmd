@@ -1,0 +1,107 @@
+---
+title: "scSEQ analysis of the developing mesenchyme"
+author: Nick Negretti
+date: 11/17/20
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung mesenchyme
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+#source("./helper_functions/libraries.R")
+library(monocle3)
+library(knitr) # for kable
+options(knitr.table.format = "html")
+library(kableExtra) # for pretty tables kable_styling()
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+#N_WORKERS <- 12
+#plan("multiprocess", workers = N_WORKERS)
+meso_cds <- readRDS("./data/20210802_celldataset_meso_relabel.rds")
+meso_cds
+
+
+
+```
+
+```{r}
+
+
+##
+gene_fits_prolif_wnt2 <- fit_models(meso_cds[,meso_cds@colData$celltype == "Prolif. Wnt2+ FB"], model_formula_str = "~timepoint_numeric", cores = 10)
+fit_coefs_prolif_wnt2 <- coefficient_table(gene_fits_prolif_wnt2)
+filt_fits_prolif_wnt2 <- fit_coefs_prolif_wnt2 %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_prolif_wnt2, "./data/20210802_meso_filt_fits_prolif_wnt2.rds")
+gc()
+
+##
+gene_fits_wnt2 <- fit_models(meso_cds[,meso_cds@colData$celltype == "Wnt2+ FB"], model_formula_str = "~timepoint_numeric", cores = 5)
+fit_coefs_wnt2 <- coefficient_table(gene_fits_wnt2)
+filt_fits_wnt2 <- fit_coefs_wnt2 %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_wnt2, "./data/20210802_meso_filt_fits_wnt2.rds")
+gc()
+
+##
+gene_fits_prolif_myo <- fit_models(meso_cds[,meso_cds@colData$celltype == "Prolif. Myo FB"], model_formula_str = "~timepoint_numeric", cores = 10)
+fit_coefs_prolif_myo <- coefficient_table(gene_fits_prolif_myo)
+filt_fits_prolif_myo <- fit_coefs_prolif_myo %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_prolif_myo, "./data/20210802_meso_filt_fits_prolif_myo.rds")
+gc()
+
+##
+gene_fits_myo <- fit_models(meso_cds[,meso_cds@colData$celltype == "Myofibroblast"], model_formula_str = "~timepoint_numeric", cores = 5)
+fit_coefs_myo <- coefficient_table(gene_fits_myo)
+filt_fits_myo <- fit_coefs_myo %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_myo, "./data/20210802_meso_filt_fits_myo.rds")
+gc()
+
+##
+gene_fits_adventitial <- fit_models(meso_cds[,meso_cds@colData$celltype == "Adventitial FB"], model_formula_str = "~timepoint_numeric", cores = 10)
+fit_coefs_adventitial <- coefficient_table(gene_fits_adventitial)
+filt_fits_adventitial <- fit_coefs_adventitial %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_adventitial, "./data/20210802_meso_filt_fits_adventitial.rds")
+gc()
+
+##
+gene_fits_pericyte <- fit_models(meso_cds[,meso_cds@colData$celltype == "Pericyte"], model_formula_str = "~timepoint_numeric", cores = 10)
+fit_coefs_pericyte <- coefficient_table(gene_fits_pericyte)
+filt_fits_pericyte <- fit_coefs_pericyte %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_pericyte, "./data/20210802_meso_filt_fits_pericyte.rds")
+gc()
+
+##
+gene_fits_smuscle <- fit_models(meso_cds[,meso_cds@colData$celltype == "Smooth Muscle"], model_formula_str = "~timepoint_numeric", cores = 10)
+fit_coefs_smuscle <- coefficient_table(gene_fits_smuscle)
+filt_fits_smuscle <- fit_coefs_smuscle %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_smuscle, "./data/20210802_meso_filt_fits_smuscle.rds")
+gc()
+
+
+##
+gene_fits_mesothelium <- fit_models(meso_cds[,meso_cds@colData$celltype == "Mesothelium"], model_formula_str = "~timepoint_numeric", cores = 10)
+fit_coefs_mesothelium <- coefficient_table(gene_fits_mesothelium)
+filt_fits_mesothelium <- fit_coefs_mesothelium %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_mesothelium, "./data/20210802_meso_filt_fits_mesothelium.rds")
+gc()
+
+
+
+gene_fits_cardiomyocyte <- fit_models(meso_cds[,meso_cds@colData$celltype == "Cardiomyocyte"], model_formula_str = "~timepoint_numeric", cores = 10)
+fit_coefs_cardiomyocyte <- coefficient_table(gene_fits_cardiomyocyte)
+filt_fits_cardiomyocyte <- fit_coefs_cardiomyocyte %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_cardiomyocyte, "./data/20210802_meso_filt_fits_cardiomyocyte.rds")
+gc()
+
+
+```

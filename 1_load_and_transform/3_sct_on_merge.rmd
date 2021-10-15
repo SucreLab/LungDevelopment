@@ -1,0 +1,69 @@
+---
+title: "scSEQ analysis of developing lung cells - revision"
+author: Nick Negretti
+date: 8/2/21
+output: rmarkdown::github_document
+---
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE, load-libraries}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+```
+
+# Load merged object
+```{r}
+devo_data <- readRDS("./data/20210802_merged_devo_data.rds")
+```
+
+# SCTranform and save
+```{r}
+devo_data <- SCTransform(devo_data, variable.features.n = 2000,
+                         batch_var = "orig.ident",
+                         conserve.memory = TRUE,
+                         vars.to.regress = c("percent.mt"),
+                         method = 'glmGamPoi',
+                         ncells = NULL)
+```
+
+```{r}
+plan("sequential")
+devo_data <- cluster_pca_umap(devo_data, dims_umap = 1:35, dims_neighbors = 1:35, cluster_res = 0.6)
+saveRDS(devo_data, "./data/20210802_merged_devo_data_sct.rds", compress = "bzip2")
+```
+
+# Write data for explorer
+```{r}
+writeAnnData <- function(seurat_obj, filename){
+
+
+  anndata::AnnData(X = t(GetAssayData(seurat_obj, slot = "data", assay = "SCT")),
+                   var = data.frame(gene = rownames(seurat_obj),
+                                    row.names = rownames(seurat_obj)),
+                   obs = data.frame(louvain = as.character(Idents(seurat_obj)),
+                                    timepoint = as.character(seurat_obj$timepoint),
+                                    seq_run = as.character(seurat_obj$orig.ident),
+                                    row.names = colnames(seurat_obj)),
+                   obsm = list(X_umap = matrix(Embeddings(seurat_obj, reduction = "umap"), ncol = 2))
+  )$write_h5ad(filename, compression = "gzip")
+
+}
+
+filename <- "./20210802_cellxgene_data_draft.h5ad"
+if (!file.exists(filename)) { # Create if doesn't exist
+  writeAnnData(devo_data, filename)
+}
+```

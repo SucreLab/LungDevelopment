@@ -1,0 +1,503 @@
+---
+title: "scSEQ analysis of developing lung cells - revision"
+author: Nick Negretti
+date: 8/2/21
+output: rmarkdown::github_document
+---
+
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE, load-libraries}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 16
+plan("multiprocess", workers = N_WORKERS)
+```
+
+```{r}
+data_integrated_sct <- readRDS("./data/20210802_integrated_zepp_epi_data_sct.rds")
+```
+
+```{r}
+
+FeaturePlot(data_integrated_sct, features = c("Cdkn1a", "Cldn4", "Hopx", "Lyz1"))
+```
+
+```{r}
+N_WORKERS <- 16
+plan("multiprocess", workers = N_WORKERS)
+filename <- "./data/20210802_integrated_zepp_epi_data_sct_markers.rds"
+if (!file.exists(filename)) {
+  markers <- parallelFindAllMarkers(data_integrated_sct)
+
+  names(markers) <- levels(Idents(data_integrated_sct))
+  saveRDS(markers, filename)
+} else {
+  markers <- readRDS(filename)
+}
+
+wb_markers_names <- levels(Idents(data_integrated_sct))
+wb_markers <- createWorkbook()
+for (idx in seq_along(wb_markers_names)){
+  addWorksheet(wb_markers, wb_markers_names[idx])
+  writeData(wb_markers, wb_markers_names[idx], markers[[idx]], rowNames = TRUE)
+}
+saveWorkbook(wb_markers, file = "./data/20210802_integrated_zepp_epi_data_sct_markers.xlsx", overwrite = TRUE)
+
+
+```
+
+```{r}
+VlnPlot(data_integrated_sct, "nCount_RNA")
+```
+
+```{r}
+data_integrated_subset <- subset(data_integrated_sct, idents = c(28, 32), invert = TRUE)
+
+data_integrated_subset <- cluster_pca_umap(data_integrated_subset, dims_umap = 1:20, dims_neighbors = 1:20, cluster_res = 1.6)
+
+```
+
+```{r}
+DimPlot(data_integrated_subset, group.by = "lab")
+DimPlot(data_integrated_subset, group.by = "timepoint")
+DimPlot(data_integrated_subset, group.by = "celltype", label = TRUE)
+DimPlot(data_integrated_subset, label = TRUE)
+```
+
+```{r}
+FeaturePlot(data_integrated_subset, features = c("Hopx", "Sftpc"))
+```
+
+```{r}
+N_WORKERS <- 20
+plan("multiprocess", workers = N_WORKERS)
+filename <- "./data/20210802_integrated_zepp_epi_data_sct_subset_markers.rds"
+if (!file.exists(filename)) {
+  markers <- parallelFindAllMarkers(data_integrated_subset)
+
+  names(markers) <- levels(Idents(data_integrated_subset))
+  saveRDS(markers, filename)
+} else {
+  markers <- readRDS(filename)
+}
+
+wb_markers_names <- levels(Idents(data_integrated_subset))
+wb_markers <- createWorkbook()
+for (idx in seq_along(wb_markers_names)){
+  addWorksheet(wb_markers, wb_markers_names[idx])
+  writeData(wb_markers, wb_markers_names[idx], markers[[idx]], rowNames = TRUE)
+}
+saveWorkbook(wb_markers, file = "./data/20210802_integrated_zepp_epi_data_sct_subset_markers.xlsx", overwrite = TRUE)
+
+
+```
+
+
+```{r}
+jaccard <- function(a, b) {
+  intersection <- length(intersect(a, b))
+  union <- length(a) + length(b) - intersection
+  return (intersection/union)
+}
+epi_relabeled_markers <- readRDS("./data/20210802_epi_devo_data_sct_labeled_markers.rds")
+cluster_markers <- readRDS("./data/20210802_integrated_zepp_epi_data_sct_subset_markers.rds")
+
+epi_relabeled_markers_positive <- lapply(epi_relabeled_markers, function(x) {filter(x, avg_log2FC > 0 & p_val_adj <= 0.05)})
+cluster_markers_positive <- lapply(cluster_markers, function(x) {filter(x, avg_log2FC > 0 & p_val_adj <= 0.05)})
+
+```
+
+
+```{r}
+annotation_matrix <- lapply(cluster_markers_positive, function(clust_marks){
+  lapply(epi_relabeled_markers_positive,
+         function(x){jaccard(rownames(x),rownames(clust_marks)) }) %>% do.call(cbind, .)
+}) %>% do.call(rbind, .) %>% as.data.frame()
+
+rownames(annotation_matrix) <- names(cluster_markers_positive)
+```
+
+```{r}
+annotation_matrix_norm <- t(apply(annotation_matrix, 1, function(x)(x-min(x))/(max(x)-min(x))))
+
+jaccard_heatmap <- ggplot(melt(as.matrix(annotation_matrix_norm)), aes(x = Var2, y = as.factor(Var1), fill = value, label = round(value, digits = 2))) +
+        geom_tile() +
+        scale_fill_distiller(palette = "Blues", direction = 1, name = "Jaccard Index", trans = "exp") +
+        geom_text(data = melt(as.matrix(annotation_matrix)), aes(x = Var2, y = as.factor(Var1), label = round(value, digits = 2))) +
+        theme(aspect.ratio = 3,
+              panel.grid = element_blank(),
+              axis.title = element_blank(),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              legend.text = element_text(size = 12),
+              legend.title = element_text(size = 12),
+              axis.text = element_text(size = 12, color = "black"),
+              axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+        )
+
+jaccard_heatmap
+```
+
+
+```{r}
+data_integrated_relabel <- data_integrated_subset
+data_integrated_relabel$louvain <- Idents(data_integrated_subset)
+data_integrated_relabel$celltype <- Idents(data_integrated_subset)
+
+idxes <- levels(data_integrated_relabel$celltype)
+labels <- rep("AT2", length(unique(Idents(data_integrated_subset))))
+labels[idxes %in% c(36)] <- "Mki67+ AT2"
+labels[idxes %in% c(24)] <- "Transitional"
+labels[idxes %in% c(8, 13, 18, 21, 14, 15, 28)] <- "AT1"
+labels[idxes %in% c(17, 20)] <- "Ciliated"
+labels[idxes %in% c(31, 34, 37)] <- "Secretory"
+labels[idxes %in% c(38)] <- "Neuroendocrine"
+labels[idxes %in% c(0, 1, 6, 7, 9, 12, 26, 33, 35)] <- "Early Epithelium"
+
+levels(data_integrated_relabel$celltype) <- labels
+```
+
+```{r}
+DimPlot(data_integrated_relabel, group.by = "celltype")
+a <- 5
+```
+
+```{r}
+# For a bugfix
+DotPlotNN <- function(object, assay = NULL, features, cols = c("lightgrey", "blue"), col.min = -2.5, col.max = 2.5, dot.min = 0, dot.scale = 6, idents = NULL, group.by = NULL, split.by = NULL, cluster.idents = FALSE, scale = TRUE, scale.by = "radius", scale.min = NA, scale.max = NA) {
+
+  PercentAbove <- function(x, threshold) {
+    return(length(x = x[x > threshold]) / length(x = x))
+  }
+  assay <- assay %||% DefaultAssay(object = object)
+  DefaultAssay(object = object) <- assay
+  split.colors <- !is.null(x = split.by) && !any(cols %in% rownames(x = brewer.pal.info))
+  scale.func <- switch(EXPR = scale.by, size = scale_size, radius = scale_radius, stop("\'scale.by\' must be either \'size\' or \'radius\'"))
+  feature.groups <- NULL
+  if (is.list(features) | any(!is.na(names(features)))) {
+    feature.groups <- unlist(x = sapply(X = 1 : length(features), FUN = function(x) {
+      return(rep(x = names(x = features)[x], each = length(features[[x]])))
+    }))
+    if (any(is.na(x = feature.groups))) {
+      warning("Some feature groups are unnamed.", call. = FALSE, immediate. = TRUE)
+    }
+    features <- unlist(x = features)
+    names(x = feature.groups) <- features
+  }
+  cells <- unlist(x = CellsByIdentities(object = object, idents = idents))
+  data.features <- FetchData(object = object, vars = features, cells = cells)
+  data.features$id <- if (is.null(x = group.by)) {
+    Idents(object = object)[cells, drop = TRUE]
+  } else {
+    object[[group.by, drop = TRUE]][cells, drop = TRUE]
+  }
+  if (!is.factor(x = data.features$id)) {
+    data.features$id <- factor(x = data.features$id)
+  }
+  id.levels <- levels(x = data.features$id)
+  data.features$id <- as.vector(x = data.features$id)
+  if (!is.null(x = split.by)) {
+    splits <- object[[split.by, drop = TRUE]][cells, drop = TRUE]
+    if (split.colors) {
+      if (length(x = unique(x = splits)) > length(x = cols)) {
+        stop("Not enough colors for the number of groups")
+      }
+      cols <- cols[1 : length(x = unique(x = splits))]
+      names(x = cols) <- unique(x = splits)
+    }
+    data.features$id <- paste(data.features$id, splits, sep = "_")
+    unique.splits <- unique(x = splits)
+    id.levels <- paste0(rep(x = id.levels, each = length(x = unique.splits)), "_", rep(x = unique(x = splits), times = length(x = id.levels)))
+  }
+  data.plot <- lapply(X = unique(x = data.features$id), FUN = function(ident) {
+    data.use <- data.features[data.features$id == ident, 1 : (ncol(x = data.features) - 1), drop = FALSE]
+    avg.exp <- apply(X = data.use, MARGIN = 2, FUN = function(x) {
+      return(mean(x = expm1(x = x)))
+    })
+    pct.exp <- apply(X = data.use, MARGIN = 2, FUN = PercentAbove, threshold = 0)
+    return(list(avg.exp = avg.exp, pct.exp = pct.exp))
+  })
+  names(x = data.plot) <- unique(x = data.features$id)
+  if (cluster.idents) {
+    mat <- do.call(what = rbind, args = lapply(X = data.plot, FUN = unlist))
+    mat <- scale(x = mat)
+    id.levels <- id.levels[hclust(d = dist(x = mat))$order]
+  }
+  data.plot <- lapply(X = names(x = data.plot), FUN = function(x) {
+    data.use <- as.data.frame(x = data.plot[[x]])
+    data.use$features.plot <- rownames(x = data.use)
+    data.use$id <- x
+    return(data.use)
+  })
+  data.plot <- do.call(what = "rbind", args = data.plot)
+  if (!is.null(x = id.levels)) {
+    data.plot$id <- factor(x = data.plot$id, levels = id.levels)
+  }
+  if (length(x = levels(x = data.plot$id)) == 1) {
+    scale <- FALSE
+    warning("Only one identity present, the expression values will be not scaled", call. = FALSE, immediate. = TRUE)
+  }
+  avg.exp.scaled <- sapply(X = unique(x = data.plot$features.plot), FUN = function(x) {
+    data.use <- data.plot[data.plot$features.plot == x, "avg.exp"]
+    if (scale) {
+      data.use <- scale(x = data.use)
+      data.use <- MinMax(data = data.use, min = col.min, max = col.max)
+    } else {
+      data.use <- log(x = data.use + 1)  ## ADDED 1 HERE
+    }
+    return(data.use)
+  })
+  avg.exp.scaled <- as.vector(x = t(x = avg.exp.scaled))
+  if (split.colors) {
+    avg.exp.scaled <- as.numeric(x = cut(x = avg.exp.scaled, breaks = 20))
+  }
+  data.plot$avg.exp.scaled <- avg.exp.scaled
+  data.plot$features.plot <- factor(x = data.plot$features.plot, levels = features)
+  data.plot$pct.exp[data.plot$pct.exp < dot.min] <- NA
+  data.plot$pct.exp <- data.plot$pct.exp * 100
+  if (split.colors) {
+    splits.use <- vapply(X = as.character(x = data.plot$id), FUN = gsub, FUN.VALUE = character(length = 1), pattern = paste0("^((", paste(sort(x = levels(x = object), decreasing = TRUE), collapse = "|"), ")_)"), replacement = "", USE.NAMES = FALSE)
+    data.plot$colors <- mapply(FUN = function(color, value) {
+      return(colorRampPalette(colors = c("grey", color))(20)[value])
+    }, color = cols[str_extract(splits.use, "(?<=_).*")], value = avg.exp.scaled) # CHANGED THIS!!! added the str_extract
+  }
+  color.by <- ifelse(test = split.colors, yes = "colors", no = "avg.exp.scaled")
+  if (!is.na(x = scale.min)) {
+    data.plot[data.plot$pct.exp < scale.min, "pct.exp"] <- scale.min
+  }
+  if (!is.na(x = scale.max)) {
+    data.plot[data.plot$pct.exp > scale.max, "pct.exp"] <- scale.max
+  }
+  if (!is.null(x = feature.groups)) {
+    data.plot$feature.groups <- factor(x = feature.groups[data.plot$features.plot], levels = unique(x = feature.groups))
+  }
+  plot <- ggplot(data = data.plot, mapping = aes_string(x = "features.plot", y = "id")) + geom_point(mapping = aes_string(size = "pct.exp", color = color.by)) + scale.func(range = c(0, dot.scale), limits = c(scale.min, scale.max)) + theme(axis.title.x = element_blank(), axis.title.y = element_blank()) + guides(size = guide_legend(title = "Percent Expressed")) + labs(x = "Features", y = ifelse(test = is.null(x = split.by), yes = "Identity", no = "Split Identity")) + cowplot::theme_cowplot()
+  if (!is.null(x = feature.groups)) {
+    plot <- plot + facet_grid(facets = `~`(feature.groups), scales = "free_x", space = "free_x", switch = "y") + theme(panel.spacing = unit(x = 1, units = "lines"), strip.background = element_blank())
+  }
+  if (split.colors) {
+    plot <- plot + scale_color_identity(aesthetics = "color")
+  } else if (length(x = cols) == 1) {
+    plot <- plot + scale_color_distiller(palette = cols)
+  } else {
+    plot <- plot + scale_color_gradient(low = cols[1], high = cols[2])
+  }
+  if (!split.colors) {
+    plot <- plot + guides(color = guide_colorbar(title = "Average Expression"))
+  }
+  return(plot)
+}
+
+```
+
+```{r}
+
+data_integrated_relabel$celltype <- ordered(as.factor(data_integrated_relabel$celltype),
+                                            c("Early Epithelium",
+                                              "Transitional",
+                                              "AT1",
+                                              "AT2",
+                                              "Mki67+ AT2",
+                                              "Ciliated",
+                                              "Secretory",
+                                              "Neuroendocrine"
+                                            ))
+
+marker_genes <- c("Mdk", "Mki67", # Early Epithelium
+                  "Cdkn1a", "Krt8", # Transitional?
+                  "Hopx", "Aqp5", #AT1
+                  "Sftpa1", "Sftpc", # AT2
+                  "Foxj1", "Dynlrb2", # Ciliated
+                  "Scgb1a1", "Scgb3a2", # Secretory
+                  "Ascl1", "Scg5" #Neuroendocrine
+)
+
+epi_marker_plot <- DotPlotNN(data_integrated_relabel, features = marker_genes, group.by = "celltype",
+                             dot.scale = 8, split.by = "lab",
+                             cols = c("#3182bd", "#31a354"),)
+
+epi_marker_plot_w_theme <- epi_marker_plot +
+        scale_y_discrete(limits=rev) +
+        theme(axis.title = element_blank(),
+              axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 12),
+              aspect.ratio = 1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              legend.text = element_text(size = 12),
+              legend.title = element_text(size = 12)
+        )
+
+epi_marker_plot_w_theme
+
+gridExtra::grid.arrange(egg::set_panel_size(p=epi_marker_plot_w_theme, width=unit(11, "cm"), height=unit(11, "cm")))
+ggsave("./data/figures/epi/zepp_markers_dotplot.pdf",
+       egg::set_panel_size(p=epi_marker_plot_w_theme, width=unit(11, "cm"), height=unit(11, "cm")),
+       bg = "transparent",
+       width=unit(8, "cm"), height=unit(5.1, "cm"))
+```
+
+```{r}
+data_integrated_at1 <- subset(data_integrated_relabel, celltype == "AT1")
+```
+
+```{r}
+eln_markers <- c("Eln", "Fbn1", "Fbn2", "Fbln5", "Fbln1", "Fbln2", "Fbln3", "Fbln4", "Emilin1", "Mfap2",
+                 "Ltbp1", "Ltbp2", "Ltbp3", "Ltbp4", "Lox", "Loxl1", "Loxl2", "Loxl3")
+
+zepp_eln_at1_exp_plot <- DotPlot(subset(data_integrated_at1, lab == "Zepp"),
+                                 features = eln_markers, group.by = "timepoint", dot.scale = 6)
+
+zepp_eln_at1_exp_plot_w_theme <- zepp_eln_at1_exp_plot +
+        scale_color_distiller(palette = "Blues", direction = 1, name = "Expression") +
+        scale_y_discrete(limits=rev) +
+        theme(axis.title = element_blank(),
+              axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 12),
+              aspect.ratio = 1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              legend.text = element_text(size = 12),
+              legend.title = element_text(size = 12)
+        )
+
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=zepp_eln_at1_exp_plot_w_theme,
+                                            width=unit(10, "cm"), height=unit(5, "cm")))
+ggsave("./data/figures/epi/zepp_eln_AT1.pdf",
+       egg::set_panel_size(p=zepp_eln_at1_exp_plot_w_theme, width=unit(10, "cm"), height=unit(5, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6.5, "cm"), height=unit(3.5, "cm"))
+
+```
+
+
+```{r}
+ecm_genes <- c('Col4a1', 'Col4a2', 'Col4a3', 'Col4a4', 'Col4a5', 'Col4a6', 'Hspg2', 'Lama1', 'Lama3', 'Lama5', 'Lamb1', 'Lamb2', 'Lamb3', 'Lamc1', 'Lamc2')
+
+
+
+zepp_ecm_at1_exp_plot <- DotPlot(subset(data_integrated_at1, lab == "Zepp"),
+                                 features = ecm_genes, group.by = "timepoint", dot.scale = 6)
+
+zepp_ecm_at1_exp_plot_w_theme <- zepp_ecm_at1_exp_plot +
+        scale_color_distiller(palette = "Blues", direction = 1, name = "Expression") +
+        scale_y_discrete(limits=rev) +
+        theme(axis.title = element_blank(),
+              axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 12),
+              aspect.ratio = 1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              legend.text = element_text(size = 12),
+              legend.title = element_text(size = 12)
+        )
+
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=zepp_ecm_at1_exp_plot_w_theme,
+                                            width=unit(10, "cm"), height=unit(5, "cm")))
+ggsave("./data/figures/epi/zepp_ecm_AT1.pdf",
+       egg::set_panel_size(p=zepp_ecm_at1_exp_plot_w_theme, width=unit(10, "cm"), height=unit(5, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6.5, "cm"), height=unit(3.5, "cm"))
+```
+
+```{r}
+
+p_cluster_umap <- ggplot() + umap_theme() +
+        ggrastr::rasterise(geom_point(data = data_integrated_relabel, aes(x = x, y = y, color = celltype), size = .05), dpi = 600) +
+        scale_colour_manual(name = "Cluster", values = color_category_20,
+                            guide = guide_legend(override.aes = list(size=3), order = 1)) +
+        theme(aspect.ratio=1,
+              legend.text=element_text(size=10),
+              legend.title=element_text(size=10),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent")) +
+        ylab("UMAP2") + xlab("UMAP1")
+
+p_cluster_umap
+
+gridExtra::grid.arrange(egg::set_panel_size(p=p_cluster_umap, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/epi/zepp_merge_labels.pdf",
+       egg::set_panel_size(p=p_cluster_umap, width=unit(10, "cm"), height=unit(10, "cm")),
+       bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+```
+
+```{r}
+
+data_integrated_relabel$timepoint <- ordered(as.factor(data_integrated_relabel$timepoint),
+                                             c("E12", "E15", "E16", "E17", "E18", "P0", "P3", "P5", "P7", "P14"))
+
+p_timepoint_umap <- ggplot() + umap_theme() +
+        ggrastr::rasterise(geom_point(data = data_integrated_relabel, aes(x = x, y = y, color = timepoint), size = .05), dpi = 600) +
+        scale_colour_manual(name = "Cluster", values = color_category_20,
+                            guide = guide_legend(override.aes = list(size=3), order = 1)) +
+        theme(aspect.ratio=1,
+              legend.text=element_text(size=10),
+              legend.title=element_text(size=10),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent")) +
+        ylab("UMAP2") + xlab("UMAP1")
+
+p_timepoint_umap
+
+gridExtra::grid.arrange(egg::set_panel_size(p=p_timepoint_umap, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/epi/zepp_merge_timepoint.pdf",
+       egg::set_panel_size(p=p_timepoint_umap, width=unit(10, "cm"), height=unit(10, "cm")),
+       bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+```
+
+```{r}
+p_timepoint_umap <- ggplot() + umap_theme() +
+        ggrastr::rasterise(geom_point(data = data_integrated_relabel, aes(x = x, y = y, color = timepoint), size = .05), dpi = 600) +
+        scale_colour_manual(name = "Timepoint", values = color_category_20,
+                            guide = guide_legend(override.aes = list(size=3), order = 1)) +
+        theme(aspect.ratio=1,
+              legend.text=element_text(size=10),
+              legend.title=element_text(size=10),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent")) +
+        ylab("UMAP2") + xlab("UMAP1")
+
+p_timepoint_umap
+
+gridExtra::grid.arrange(egg::set_panel_size(p=p_timepoint_umap, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/epi/zepp_merge_timepoint.pdf",
+       egg::set_panel_size(p=p_timepoint_umap, width=unit(10, "cm"), height=unit(10, "cm")),
+       bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+```
+
+```{r}
+p_lab_umap <- ggplot() + umap_theme() +
+        ggrastr::rasterise(geom_point(data = data_integrated_relabel, aes(x = x, y = y, color = lab), size = .05), dpi = 600) +
+        scale_colour_manual(name = "Study", values = color_scanpy_default,
+                            guide = guide_legend(override.aes = list(size=3), order = 1),
+                            labels = c( "Negretti et al.", "Zepp et al.")
+        ) +
+        theme(aspect.ratio=1,
+              legend.text=element_text(size=10),
+              legend.title=element_text(size=10),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent")) +
+        ylab("UMAP2") + xlab("UMAP1")
+
+gridExtra::grid.arrange(egg::set_panel_size(p=p_lab_umap, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/epi/zepp_merge_lab.pdf",
+       egg::set_panel_size(p=p_lab_umap, width=unit(10, "cm"), height=unit(10, "cm")),
+       bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+```

@@ -1,0 +1,65 @@
+---
+title: "scSEQ analysis of all lung cells"
+author: Nick Negretti
+date: 9/30/20
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung epithelium
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+#source("./helper_functions/libraries.R")
+library(monocle3)
+library(tidyverse)
+library(knitr) # for kable
+options(knitr.table.format = "html")
+library(kableExtra) # for pretty tables kable_styling()
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+
+merged_cds <- readRDS("./data/20210902_celldataset_merged_seurat.rds")
+merged_cds
+
+
+```
+
+```{r}
+
+##
+gene_fits_Epi <- fit_models(merged_cds[,merged_cds@colData$bulk_celltype == "Epithelial"], model_formula_str = "~timepoint_numeric", cores = 10)
+fit_coefs_Epi <- coefficient_table(gene_fits_Epi)
+filt_fits_Epi <- fit_coefs_Epi %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_Epi, "./data/20210902_merged_filt_fits_Epi.rds")
+gc()
+
+
+
+
+##
+gene_fits_Endo <- fit_models(merged_cds[,merged_cds@colData$bulk_celltype == "Endothelial"], model_formula_str = "~timepoint_numeric", cores = 10)
+fit_coefs_Endo <- coefficient_table(gene_fits_Endo)
+filt_fits_Endo <- fit_coefs_Endo %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_Endo, "./data/20210902_merged_filt_fits_Endo.rds")
+gc()
+
+
+
+gene_fits_Meso <- fit_models(merged_cds[,merged_cds@colData$bulk_celltype == "Mesenchymal"], model_formula_str = "~timepoint_numeric", cores = 10)
+fit_coefs_Meso <- coefficient_table(gene_fits_Meso)
+filt_fits_Meso <- fit_coefs_Meso %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_Meso, "./data/20210902_merged_filt_fits_Meso.rds")
+gc()
+
+
+```

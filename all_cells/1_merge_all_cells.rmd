@@ -1,0 +1,611 @@
+---
+title: "scSEQ analysis of all lung cells"
+author: Nick Negretti
+date: 9/30/20
+output: rmarkdown::github_document
+---
+
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+plan("multiprocess", workers = N_WORKERS)
+```
+
+
+```{r}
+N_WORKERS <- 16
+plan("multiprocess", workers = N_WORKERS)
+
+filename <- "./data/20120802_merged_devodata_sct.rds"
+if (!file.exists(filename)) {
+  if (!file.exists(filename)) {
+    epi <- readRDS("./data/20210802_epi_devo_data_sct_labeled.rds")
+    DefaultAssay(epi) <- "RNA"
+    epi <- DietSeurat(epi, assays = "RNA")
+    epi$bulk_celltype <- "Epithelial"
+
+    endo <- readRDS("./data/20210802_endo_devo_data_sct_labeled.rds")
+    DefaultAssay(endo) <- "RNA"
+    endo <- DietSeurat(endo, assays = "RNA")
+    endo$bulk_celltype <- "Endothelial"
+
+    meso <- readRDS("./data/20210802_meso_labeled.rds")
+    DefaultAssay(meso) <- "RNA"
+    meso <- DietSeurat(meso, assays = "RNA")
+    meso$bulk_celltype <- "Mesenchymal"
+
+    merged_seurat <- Reduce(function(x,y){merge(x,y)}, list(epi, endo, meso))
+
+    merged_seurat$cell_subtype <- Idents(merged_seurat)
+    merged_seurat$bulk_celltype <- as.factor(merged_seurat$bulk_celltype)
+
+    saveRDS(merged_seurat, "./data/20120802_merged_devodata.rds")
+    rm(epi)
+    rm(endo)
+    rm(meso)
+    gc()
+  } else {
+    merged_seurat <- readRDS("./data/20120802_merged_devodata.rds")
+  }
+
+
+  merged_seurat <- SCTransform(merged_seurat, variable.features.n = 2000,
+                          batch_var = "orig.ident",
+                          conserve.memory = TRUE,
+                          vars.to.regress = c("percent.mt"),
+                          method = 'glmGamPoi',
+                          ncells = NULL)
+  merged_seurat <- cluster_pca_umap(merged_seurat, dims_umap = 1:35, dims_neighbors = 1:35, cluster_res = 0.6)
+  saveRDS(merged_seurat, filename, compress = "bzip2")
+} else {
+  merged_seurat <- readRDS(filename)
+}
+```
+
+###
+```{r}
+timepoint_factor <- factor(merged_seurat$timepoint)
+timepoint_ordered <- ordered(timepoint_factor, levels = unique(merged_seurat$timepoint))
+
+cell_ident_df <- data.frame(timepoint = timepoint_ordered,
+                            cluster = Idents(merged_seurat))
+
+table(cell_ident_df$timepoint)
+
+cell_ident_df <- data.frame(timepoint = timepoint_ordered,
+                            cluster = merged_seurat$bulk_celltype)
+
+table(cell_ident_df$timepoint, cell_ident_df$cluster)
+table(cell_ident_df$cluster)
+```
+
+```{r}
+median(merged_seurat$nCount_SCT)
+quantile(merged_seurat$nCount_SCT)
+
+median(merged_seurat$nFeature_SCT)
+quantile(merged_seurat$nFeature_SCT)
+
+merged_seurat$orig.ident <- ordered(as.factor(merged_seurat$orig.ident), unique(merged_seurat$orig.ident))
+nCount_plot <- VlnPlot(merged_seurat, "nCount_SCT", group.by = "orig.ident", pt.size = FALSE) + ggtitle("UMI per cell")
+nFeature_plot <- VlnPlot(merged_seurat, "nFeature_SCT", group.by = "orig.ident", pt.size = FALSE) + ggtitle("Genes per cell")
+
+ggsave("./data/figures/all/QC_nCount.pdf", nCount_plot)
+ggsave("./data/figures/all/QC_nFeature.pdf", nFeature_plot)
+
+```
+
+
+```{r, fig.width = 12}
+# Make the tiempoints an ordered factor, so they are displayed consistantly
+merged_seurat$timepoint <- ordered(as.factor(merged_seurat$timepoint), unique(merged_seurat$timepoint))
+
+
+p_time <- DimPlot(merged_seurat, group.by = "timepoint", raster = FALSE) + umap_theme() +
+        scale_colour_manual(name = "Timepoint", values = color_category_20)+
+        theme(aspect.ratio=1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"))
+
+# Function for going from Seurat objects to UMAP projections easily.
+fortify.Seurat <- function(x){
+  xy <- as.data.frame(Embeddings(x, reduction = "umap"))
+  colnames(xy) <- c("x", "y")
+  xy$x <- as.numeric(xy$x)
+  xy$y <- as.numeric(xy$y)
+
+  return(cbind(xy, as.data.frame(x@meta.data)))
+}
+
+Idents(merged_seurat) <- merged_seurat$celltype
+#all_fortify %<-% fortify.Seurat(merged_seurat)
+epi_fortify %<-% fortify.Seurat(subset(merged_seurat, bulk_celltype == "Epithelial"))
+endo_fortify %<-% fortify.Seurat(subset(merged_seurat, bulk_celltype == "Endothelial"))
+meso_fortify %<-% fortify.Seurat(subset(merged_seurat, bulk_celltype == "Mesenchymal"))
+
+
+epi_fortify$celltype <- ordered(as.factor(epi_fortify$celltype), c("Early Epithelium",
+                                                                           "Transitional",
+                                                                           "AT1",
+                                                                           "AT2",
+                                                                           "Mki67+ AT2",
+                                                                           "Ciliated",
+                                                                           "Secretory",
+                                                                           "Neuroendocrine"
+))
+endo_fortify$celltype <- ordered(endo_fortify$celltype, c("Arterial maEC",
+                                                                  "Venous maEC",
+                                                                  "Prolif. gCap",
+                                                                  "gCap",
+                                                                  "aCap",
+                                                                  "Lymphatic"
+))
+meso_fortify$celltype <- ordered(as.factor(meso_fortify$celltype), c("Prolif. Wnt2+ FB",
+                                                                             "Wnt2+ FB",
+                                                                             "Prolif. Myo FB",
+                                                                             "Myofibroblast",
+                                                                             "Adventitial FB",
+                                                                             "Pericyte",
+                                                                             "Mesothelium",
+                                                                             "Smooth Muscle",
+                                                                             "Cardiomyocyte"
+))
+
+
+all_umap <- ggplot() + umap_theme() +
+        ggrastr::rasterise(geom_point(data = epi_fortify, aes(x = x, y = y, color = celltype), size = .1), dpi = 600) +
+        scale_colour_manual(name = "Epithelium", values = color_category_20, guide = guide_legend(override.aes = list(size=3), order = 1)) +
+        theme(aspect.ratio=1,
+              legend.text=element_text(size=12),
+              legend.title=element_text(size=12),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent")) +
+        new_scale_color() +
+          ggrastr::rasterise(geom_point(data = endo_fortify, aes(x = x, y = y, color = celltype), size = .1), dpi = 600) +
+          scale_colour_manual(name = "Endothelium", values = color_category_20, guide = guide_legend(override.aes = list(size=3), order = 2)) +
+          theme(legend.text=element_markdown(size=12),
+                legend.title=element_text(size=12),
+                panel.background = element_rect(fill = "transparent", colour = "black"),
+                plot.background = element_rect(color = "transparent", fill = "transparent")) +
+          guides(colour = guide_legend(override.aes = list(size=3))) +
+        new_scale_color() +
+          ggrastr::rasterise(geom_point(data = meso_fortify, aes(x = x, y = y, color = celltype), size = .1), dpi = 600) +
+          scale_colour_manual(name = "Mesenchyme", values = color_category_20, guide = guide_legend(override.aes = list(size=3), order = 3)) +
+          theme(legend.text=element_markdown(size=12),
+                legend.title=element_text(size=12),
+                panel.background = element_rect(fill = "transparent", colour = "black"),
+                plot.background = element_rect(color = "transparent", fill = "transparent")) +
+          guides(colour = guide_legend(override.aes = list(size=3))) +
+          labs(x = "UMAP1", y = "UMAP2") #+
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=all_umap, width=unit(15, "cm"), height=unit(15, "cm")))
+ggsave("./data/figures/all/all_umap_nolines.pdf",
+       egg::set_panel_size(p=all_umap, width=unit(15, "cm"), height=unit(15, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(9, "cm"), height=unit(9, "cm"))
+a <- 3
+```
+
+```{r}
+p_time_umap <- ggplot() + umap_theme() +
+        ggrastr::rasterise(geom_point(data = merged_seurat, aes(x = x, y = y, color = timepoint), size = .05), dpi = 600) +
+        scale_colour_manual(name = "Timepoint", values = color_category_20,
+                            guide = guide_legend(override.aes = list(size=3), order = 1)
+        ) +
+        theme(aspect.ratio=1,
+              legend.text=element_text(size=10),
+              legend.title=element_text(size=10),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent")) +
+        ylab("UMAP2") + xlab("UMAP1")
+
+gridExtra::grid.arrange(egg::set_panel_size(p=p_time_umap, width=unit(15, "cm"), height=unit(15, "cm")))
+
+ggsave("./data/figures/all/UMAP_time.pdf",
+       egg::set_panel_size(p=p_time_umap, width=unit(15, "cm"), height=unit(15, "cm")),
+       bg = "transparent",
+       width=unit(9, "cm"), height=unit(9, "cm"))
+```
+
+```{r}
+ggplot() + umap_theme() +
+        geom_point(data = epi_fortify, aes(x = x, y = y, color = timepoint), size = .1) +
+        scale_colour_manual(name = "Epithelium", values = color_category_20, guide = guide_legend(override.aes = list(size=3), order = 1)) +
+        theme(aspect.ratio=1,
+              legend.text=element_text(size=14),
+              legend.title=element_text(size=14),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"))
+```
+```{r}
+celltype_order <- c("Early Epithelium",
+  "Transitional",
+  "AT1",
+  "AT2",
+  "Mki67+ AT2",
+  "Ciliated",
+  "Secretory",
+  "Neuroendocrine",
+  # Endo
+  "Arterial maEC",
+  "Venous maEC",
+  "Prolif. gCap",
+  "gCap",
+  "aCap",
+  "Lymphatic",
+  # Mesenchyme
+  "Prolif. Wnt2+ FB",
+  "Wnt2+ FB",
+  "Prolif. Myo FB",
+  "Myofibroblast",
+  "Adventitial FB",
+  "Pericyte",
+  "Mesothelium",
+  "Smooth Muscle",
+  "Cardiomyocyte"
+)
+
+merged_seurat$celltype <- ordered(as.factor(merged_seurat$celltype), celltype_order)
+```
+
+```{r}
+epi_marker_genes <- c("Mdk", "Sox9", # Early Epithelium
+                  "Cdkn1a", "Krt8", # Transitional?
+                  "Hopx", "Aqp5", #AT1
+                  "Sftpa1", "Sftpc", # AT2
+                  "Foxj1", "Dynlrb2", # Ciliated
+                  "Scgb1a1", "Scgb3a2", # Secretory
+                  "Ascl1", "Scg5" #Neuroendocrine
+)
+endo_marker_genes <- c("Cxcl12", "Pcsk5", # Art maEC
+                  "Vegfc", "Prss23", # Ven maEC?
+                  "Mki67", "Top2a", # Prolif gCap
+                  "Gpihbp1", "Kit", # gCap
+                  "Car4", "Kdr", # aCap
+                  "Flt4", "Ccl21a" # Lymphatic
+)
+meso_marker_genes <- c("Wnt2", "Macf1", # Wnt2 fibroblasts 0
+                  "Tgfbi", "Wnt5a", # Myofibroblasts 1
+                  "Dcn", "Col1a1", # Adventitial fibroblast 2
+                  "Cspg4", "Cox4i2", # Pericyte 4
+                  "Wt1", "Upk3b", # Mesothelium 6
+                  "Eln", "Acta2", # Smooth muscle 7
+                  "Tnnt2", "Actc1" # Cardiomyocyte
+)
+
+all_markers <- c(epi_marker_genes, endo_marker_genes, meso_marker_genes)
+
+all_marker_plot <- DotPlot(merged_seurat, features = all_markers, group.by = "celltype", dot.scale = 6)
+
+all_marker_plot_w_theme <- all_marker_plot +
+        scale_color_distiller(palette = "Blues", direction = 1, name = "Expression") +
+        scale_y_discrete(limits=rev) +
+        theme(axis.title = element_blank(),
+              axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 12),
+              aspect.ratio = 1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              legend.text = element_text(size = 12),
+              legend.title = element_text(size = 12)
+        )
+
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=all_marker_plot_w_theme, width=unit(20, "cm"), height=unit(12, "cm")))
+ggsave("./data/figures/all/all_dotplot_markers.pdf",
+       egg::set_panel_size(p=all_marker_plot_w_theme, width=unit(20, "cm"), height=unit(12, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(12, "cm"), height=unit(5.8, "cm"))
+
+```
+
+
+```{r}
+# UMAP:
+# All cells grayed out except E15 / another except P3.
+
+
+ggplot_data <- as.data.frame(Embeddings(merged_seurat, reduction = "umap"))
+ggplot_data$timepoint <- merged_seurat$timepoint
+ggplot_data$celltype <- merged_seurat$celltype
+ggplot_data$bulk_celltype <- merged_seurat$bulk_celltype
+
+
+ggdata_epi <- subset(ggplot_data, bulk_celltype == "Epithelial")
+ggdata_endo <- subset(ggplot_data, bulk_celltype == "Endothelial")
+ggdata_meso <- subset(ggplot_data, bulk_celltype == "Mesenchymal")
+
+# Combine prolif Wnt2+ w/ Wnt2+. Same for MyoFB.
+ggmeso_subtype_factor <- as.factor(ggdata_meso$celltype)
+ggdata_meso$celltype <- as.factor(ggdata_meso$celltype)
+levels(ggdata_meso$celltype) <- levels(ggmeso_subtype_factor)[c(1:5,4,9,8:9)]
+
+ggdata_epi <- ggdata_epi[ggdata_epi$celltype %in% c("Early Epithelium", "Transitional"),]
+epi_colors <- c("#1f77b4", "#aec7e8", "#2ca02c", "#98df8a")
+ggdata_endo <- ggdata_endo[ggdata_endo$celltype %in% c("gCap", "aCap"),]
+endo_colors <- c("#ffbb78", "#ff7f0e")
+ggdata_meso <- ggdata_meso[ggdata_meso$celltype %in% c("Myofibroblast", "Wnt2+ FB"),]
+meso_colors <- c("#d62728", "#ff9896")
+
+
+
+e15_highlight <- ggplot() +
+        ggrastr::rasterise(geom_point(data = ggplot_data[!(ggplot_data$timepoint %in% c("E15")),],
+                   aes(x = UMAP_1, y = UMAP_2), size = 0.1, alpha = 0.2, color = "gray"), dpi = 600) +
+        umap_theme() +
+        scale_colour_manual(name = "Timepoint", values = color_scanpy_default) +
+        theme(aspect.ratio=1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent")) +
+        theme(legend.text=element_markdown(size=14),
+              legend.title=element_text(size=14)) +
+        guides(colour = guide_legend(override.aes = list(size=3))) +
+        new_scale_color() +
+
+        ggrastr::rasterise(geom_point(data = ggdata_epi[(ggdata_epi$timepoint %in% c("E15")),], aes(x = UMAP_1, y = UMAP_2, color = celltype), size = .1), dpi = 600) +
+        scale_colour_manual(name = "Epithelium", values = epi_colors, guide = guide_legend(override.aes = list(size=3), order = 1)) +
+        theme(aspect.ratio=1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              legend.text=element_markdown(size=14),
+              legend.title=element_text(size=14)) +
+        new_scale_color() +
+
+        ggrastr::rasterise(geom_point(data = ggdata_endo[(ggdata_endo$timepoint %in% c("E15")),], aes(x = UMAP_1, y = UMAP_2, color = celltype), size = .1), dpi = 600) +
+        scale_colour_manual(name = "Endothelium", values = endo_colors, guide = guide_legend(override.aes = list(size=3), order = 2)) +
+        theme(legend.text=element_markdown(size=14),
+              legend.title=element_text(size=14),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent")) +
+        guides(colour = guide_legend(override.aes = list(size=3))) +
+        new_scale_color() +
+
+        ggrastr::rasterise(geom_point(data = ggdata_meso[(ggdata_endo$timepoint %in% c("E15")),], aes(x = UMAP_1, y = UMAP_2, color = celltype), size = .1), dpi = 600) +
+        scale_colour_manual(name = "Mesenchyme", values = meso_colors, guide = guide_legend(override.aes = list(size=3), order = 3)) +
+        theme(legend.text=element_markdown(size=14),
+              legend.title=element_text(size=14),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent")) +
+        guides(colour = guide_legend(override.aes = list(size=3))) +
+        labs(x = "UMAP_1", y = "UMAP_2") +
+
+        ggtitle("E15 cells")
+
+e15_highlight
+
+gridExtra::grid.arrange(egg::set_panel_size(p=e15_highlight, width=unit(15, "cm"), height=unit(15, "cm")))
+ggsave("./data/figures/all/e15_highlight_UMAP_revised.pdf",
+       egg::set_panel_size(p=e15_highlight, width=unit(15, "cm"), height=unit(15, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(9, "cm"), height=unit(9, "cm"))
+
+```
+
+
+```{r}
+
+
+ggplot_data <- as.data.frame(Embeddings(merged_seurat, reduction = "umap"))
+ggplot_data$timepoint <- merged_seurat$timepoint
+ggplot_data$celltype <- merged_seurat$celltype
+ggplot_data$bulk_celltype <- merged_seurat$bulk_celltype
+
+
+ggdata_epi <- subset(ggplot_data, bulk_celltype == "Epithelial")
+ggdata_endo <- subset(ggplot_data, bulk_celltype == "Endothelial")
+ggdata_meso <- subset(ggplot_data, bulk_celltype == "Mesenchymal")
+
+# Combine prolif Wnt2+ w/ Wnt2+. Same for MyoFB.
+ggmeso_subtype_factor <- as.factor(ggdata_meso$celltype)
+ggdata_meso$celltype <- as.factor(ggdata_meso$celltype)
+levels(ggdata_meso$celltype) <- levels(ggmeso_subtype_factor)[c(1:5,4,9,8:9)]
+
+
+ggdata_epi <- ggdata_epi[ggdata_epi$celltype %in% c("Transitional", "AT1", "AT2"),]
+epi_colors <- c("#2ca02c", "#98df8a", "#aec7e8")
+ggdata_endo <- ggdata_endo[ggdata_endo$celltype %in% c("gCap", "aCap"),]
+endo_colors <- c("#ffbb78", "#ff7f0e")
+ggdata_meso <- ggdata_meso[ggdata_meso$celltype %in% c("Myofibroblast", "Wnt2+ FB"),]
+meso_colors <- c("#d62728", "#ff9896")
+
+p3_highlight <- ggplot() +
+        ggrastr::rasterise(geom_point(data = ggplot_data[!(ggplot_data$timepoint %in% c("P3")),],
+                   aes(x = UMAP_1, y = UMAP_2), size = 0.1, alpha = 0.2, color = "gray"), dpi = 600) +
+        umap_theme() +
+        theme(aspect.ratio=1) +
+        theme(legend.text=element_markdown(size=14),
+              legend.title=element_text(size=14)) +
+        guides(colour = guide_legend(override.aes = list(size=3))) +
+        new_scale_color() +
+
+        ggrastr::rasterise(geom_point(data = ggdata_epi[(ggdata_epi$timepoint %in% c("P3")),], aes(x = UMAP_1, y = UMAP_2, color = celltype), size = .1), dpi = 600) +
+        scale_colour_manual(name = "Epithelium", values = epi_colors, guide = guide_legend(override.aes = list(size=3), order = 1)) +
+        theme(aspect.ratio=1,
+              legend.text=element_markdown(size=14),
+              legend.title=element_text(size=14)) +
+        new_scale_color() +
+
+        ggrastr::rasterise(geom_point(data = ggdata_endo[(ggdata_endo$timepoint %in% c("P3")),], aes(x = UMAP_1, y = UMAP_2, color = celltype), size = .1), dpi = 600) +
+        scale_colour_manual(name = "Endothelium", values = endo_colors, guide = guide_legend(override.aes = list(size=3), order = 2)) +
+        theme(legend.text=element_markdown(size=14),
+              legend.title=element_text(size=14)) +
+        guides(colour = guide_legend(override.aes = list(size=3))) +
+        new_scale_color() +
+
+        ggrastr::rasterise(geom_point(data = ggdata_meso[(ggdata_endo$timepoint %in% c("P3")),], aes(x = UMAP_1, y = UMAP_2, color = celltype), size = .1), dpi = 600) +
+        scale_colour_manual(name = "Mesenchyme", values = meso_colors, guide = guide_legend(override.aes = list(size=3), order = 3)) +
+        theme(legend.text=element_markdown(size=14),
+              legend.title=element_text(size=14)) +
+        guides(colour = guide_legend(override.aes = list(size=3))) +
+        labs(x = "UMAP_1", y = "UMAP_2") +
+
+        ggtitle("P3 cells")
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=p3_highlight, width=unit(15, "cm"), height=unit(15, "cm")))
+ggsave("./data/figures/all/p3_highlight_UMAP_revised.pdf",
+       egg::set_panel_size(p=p3_highlight, width=unit(15, "cm"), height=unit(15, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(9, "cm"), height=unit(9, "cm"))
+
+
+```
+
+
+```{r}
+eln_markers <- c("Eln", "Fbn1", "Fbn2", "Fbln5", "Fbln1", "Fbln2", "Fbln3", "Fbln4", "Emilin1", "Mfap2",
+                 "Ltbp1", "Ltbp2", "Ltbp3", "Ltbp4", "Lox", "Loxl1", "Loxl2", "Loxl3")
+
+eln_all_exp_plot <- DotPlot(merged_seurat,
+                                 features = eln_markers, group.by = "celltype", dot.scale = 6)
+
+eln_all_exp_plot_w_theme <- eln_all_exp_plot +
+        scale_color_distiller(palette = "Blues", direction = 1, name = "Expression") +
+        scale_y_discrete(limits=rev) +
+        theme(axis.title = element_blank(),
+              axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 12),
+              aspect.ratio = 1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              legend.text = element_text(size = 12),
+              legend.title = element_text(size = 12)
+        )
+
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=eln_all_exp_plot_w_theme,
+                                            width=unit(10, "cm"), height=unit(12, "cm")))
+ggsave("./data/figures/all/eln_all.pdf",
+       egg::set_panel_size(p=eln_all_exp_plot_w_theme, width=unit(10, "cm"), height=unit(12, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(8, "cm"), height=unit(6.5, "cm"))
+
+```
+
+
+```{r}
+ecm_genes <- c('Col4a1', 'Col4a2', 'Col4a3', 'Col4a4', 'Col4a5', 'Col4a6', 'Hspg2', 'Lama1', 'Lama3', 'Lama5', 'Lamb1', 'Lamb2', 'Lamb3', 'Lamc1', 'Lamc2')
+
+
+
+ecm_all_exp_plot <- DotPlot(merged_seurat,
+                                 features = ecm_genes, group.by = "celltype", dot.scale = 6)
+
+ecm_all_exp_plot_w_theme <- ecm_all_exp_plot +
+        scale_color_distiller(palette = "Blues", direction = 1, name = "Expression") +
+        scale_y_discrete(limits=rev) +
+        theme(axis.title = element_blank(),
+              axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 12),
+              aspect.ratio = 1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              legend.text = element_text(size = 12),
+              legend.title = element_text(size = 12)
+        )
+
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=ecm_all_exp_plot_w_theme,
+                                            width=unit(10, "cm"), height=unit(12, "cm")))
+ggsave("./data/figures/all/ecm_all.pdf",
+       egg::set_panel_size(p=ecm_all_exp_plot_w_theme, width=unit(10, "cm"), height=unit(12, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(8, "cm"), height=unit(6.5, "cm"))
+```
+
+
+```{r}
+merged_celltype <- as.factor(merged_seurat$celltype)
+
+levels(merged_celltype) <- c(rep("Endothelium", 1), rep("Mesenchyme", 1), rep("Endothelium", 1),
+                             "AT1", "AT2", rep("Mesenchyme", 1),
+                             "Other Epithelium", "Early Epithelium", rep("Endothelium", 2),
+                             rep("Mesenchyme", 1), "Mki67+ AT2", rep("Mesenchyme", 1), "Other Epithelium",
+                             rep("Mesenchyme", 1), rep("Endothelium", 1), rep("Mesenchyme", 2), "Other Epithelium",
+                             "Mesenchyme", "Transitional", "Endothelium", "Mesenchyme"
+
+)
+
+merged_seurat$merged_celltype <- merged_celltype
+DimPlot(merged_seurat, group.by = "merged_celltype")
+merged_seurat$merged_celltype <- ordered(as.factor(merged_seurat$merged_celltype),
+                                         c("Early Epithelium", "Transitional",
+                                           "AT1", "AT2", "Mki67+ AT2", "Other Epithelium",
+                                           "Endothelium", "Mesenchyme"))
+
+```
+
+```{r}
+eln_markers <- c("Eln", "Fbn1", "Fbn2", "Fbln5", "Fbln1", "Fbln2", "Fbln3", "Fbln4", "Emilin1", "Mfap2",
+                 "Ltbp1", "Ltbp2", "Ltbp3", "Ltbp4", "Lox", "Loxl1", "Loxl2", "Loxl3")
+
+eln_all_exp_plot <- DotPlot(merged_seurat,
+                            features = eln_markers, group.by = "merged_celltype", dot.scale = 6)
+
+eln_all_exp_plot_w_theme <- eln_all_exp_plot +
+        scale_color_distiller(palette = "Blues", direction = 1, name = "Expression") +
+        scale_y_discrete(limits=rev) +
+        theme(axis.title = element_blank(),
+              axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 12),
+              aspect.ratio = 1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              legend.text = element_text(size = 12),
+              legend.title = element_text(size = 12)
+        )
+
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=eln_all_exp_plot_w_theme,
+                                            width=unit(10, "cm"), height=unit(4, "cm")))
+ggsave("./data/figures/all/eln_all_small.pdf",
+       egg::set_panel_size(p=eln_all_exp_plot_w_theme, width=unit(10, "cm"), height=unit(4, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(8, "cm"), height=unit(4, "cm"))
+
+```
+
+
+```{r}
+ecm_genes <- c('Col4a1', 'Col4a2', 'Col4a3', 'Col4a4', 'Col4a5', 'Col4a6', 'Hspg2', 'Lama1', 'Lama3', 'Lama5', 'Lamb1', 'Lamb2', 'Lamb3', 'Lamc1', 'Lamc2')
+
+
+
+ecm_all_exp_plot <- DotPlot(merged_seurat,
+                            features = ecm_genes, group.by = "merged_celltype", dot.scale = 6)
+
+ecm_all_exp_plot_w_theme <- ecm_all_exp_plot +
+        scale_color_distiller(palette = "Blues", direction = 1, name = "Expression") +
+        scale_y_discrete(limits=rev) +
+        theme(axis.title = element_blank(),
+              axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 12),
+              aspect.ratio = 1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              legend.text = element_text(size = 12),
+              legend.title = element_text(size = 12)
+        )
+
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=ecm_all_exp_plot_w_theme,
+                                            width=unit(10, "cm"), height=unit(4, "cm")))
+ggsave("./data/figures/all/ecm_all_small.pdf",
+       egg::set_panel_size(p=ecm_all_exp_plot_w_theme, width=unit(10, "cm"), height=unit(4, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(8, "cm"), height=unit(4, "cm"))
+```

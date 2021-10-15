@@ -1,0 +1,216 @@
+---
+title: "scSEQ analysis of developing lung cells - revision"
+author: Nick Negretti
+date: 8/2/21
+output: rmarkdown::github_document
+---
+
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE, load-libraries}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+```
+
+
+```{r soupx-func}
+runSoupX <- function(raw_counts, filtered_counts, mat_out_path){
+  in_soup <- SoupChannel(tod = raw_counts[rownames(raw_counts) != "Gm42418",],
+                         toc = filtered_counts[rownames(filtered_counts) != "Gm42418",],
+                         metaData = NULL, soupRange = c(0, 10), keepDroplets = FALSE) # Gm42418 is a rRNA contaminant - remove it now
+  sr_obj <- CreateSeuratObject(in_soup$toc)
+  # Fast preliminary clustering and normalization for soupx run
+  sr_obj <- NormalizeData(sr_obj)
+  sr_obj <- FindVariableFeatures(sr_obj)
+  sr_obj <- ScaleData(sr_obj)
+  sr_obj <- RunPCA(sr_obj,pcs.compute=30)
+  sr_obj <- RunUMAP(sr_obj,dims=1:15)
+  sr_obj <- FindNeighbors(sr_obj,dims=1:15)
+  sr_obj <- FindClusters(sr_obj,resolution=1.2)
+  sr_DF <-  as.data.frame(sr_obj@reductions$umap@cell.embeddings)
+  colnames(sr_DF) <- c('RD1','RD2')
+  sr_DF$Cluster <- factor(sr_obj@meta.data[rownames(sr_DF),'RNA_snn_res.1.2'])
+
+  #Specify background RNA genes
+  background_RNA_genes <- c("Dcn", "Bgn", "Aspn", "Ecm2", "Fos", "Hbb-bs", "Hbb-bt", "Hba-a1", "Hba-a2", "Lyz1", "Lyz2", "Mgp", "Postn", "Scgb1a1")
+
+  #Specify background RNA genes for epithelial specific cell sort
+  est_expression <- estimateNonExpressingCells(in_soup,
+                                               list(SLRP = background_RNA_genes),
+                                               clusters = setNames(sr_DF$Cluster, rownames(sr_DF)),
+                                               FDR = 0.05,
+                                               maximumContamination = 1.5)
+
+  ## calculate contamination and adjust the counts.
+  in_soup <- setClusters(in_soup, sr_DF$Cluster)
+  in_soup <- calculateContaminationFraction(in_soup, list(SLRP = background_RNA_genes), useToEst = est_expression, forceAccept = TRUE)
+  head(in_soup$metaData)
+
+  ## adjust the counts based on contamination fraction
+  ## Return dgCMatrix
+  #return(adjustCounts(in_soup, roundToInt = TRUE))
+  adj_counts <- adjustCounts(in_soup)
+  Matrix::writeMM(adj_counts, file = paste0(mat_out_path))
+  return(adj_counts)
+}
+```
+
+
+```{r construct-futures}
+# Construct futures for parallel processing of soupx
+# Subset the object here by quality - this will be useful later for dropping bad cells for hashing
+pct_mt_high <- 10
+pct_mt_low <- 0.5
+min_nfeature <- 700
+
+Zepp_E12_5 %<-% {runSoupX(Read10X("./data/seq/zepp/E12_5/raw_feature_bc_matrix"),
+                      Read10X("./data/seq/zepp/E12_5/filtered_feature_bc_matrix"),
+            "./data/seq/zepp/E12_5/E12_5_soupx_counts.mtx") %>%
+  CreateSeuratObject(counts = ., project = "Zepp_E12_5") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+Zepp_E15_5 %<-% {runSoupX(Read10X("./data/seq/zepp/E15_5/raw_feature_bc_matrix"),
+                      Read10X("./data/seq/zepp/E15_5/filtered_feature_bc_matrix"),
+                      "./data/seq/zepp/E15_5/E15_5_soupx_counts.mtx") %>%
+  CreateSeuratObject(counts = ., project = "Zepp_E15_5") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+Zepp_E17_5 %<-% {runSoupX(Read10X("./data/seq/zepp/E17_5/raw_feature_bc_matrix"),
+                      Read10X("./data/seq/zepp/E17_5/filtered_feature_bc_matrix"),
+                      "./data/seq/zepp/E17_5/E17_5_soupx_counts.mtx") %>%
+  CreateSeuratObject(counts = ., project = "Zepp_E17_5") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+Zepp_P3 %<-% {runSoupX(Read10X("./data/seq/zepp/P3_cd45dep/raw_feature_bc_matrix"),
+                      Read10X("./data/seq/zepp/P3_cd45dep/filtered_feature_bc_matrix"),
+                      "./data/seq/zepp/P3_cd45dep/P3_soupx_counts.mtx") %>%
+  CreateSeuratObject(counts = ., project = "Zepp_P3") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+Zepp_P7 %<-% {runSoupX(Read10X("./data/seq/zepp/P7_cd45dep/raw_feature_bc_matrix"),
+                       Read10X("./data/seq/zepp/P7_cd45dep/filtered_feature_bc_matrix"),
+                       "./data/seq/zepp/P7_cd45dep/P7_soupx_counts.mtx") %>%
+  CreateSeuratObject(counts = ., project = "Zepp_P7") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+```
+
+```{r create-data-list}
+# Limit memory usage by running SoupX on load, reduces number of matricies in RAM
+# The SoupX function also drops Gm42418
+expression_objs <- list(
+        Zepp_E12_5 = Zepp_E12_5,
+        Zepp_E15_5 = Zepp_E15_5,
+        Zepp_E17_5 = Zepp_E17_5,
+        Zepp_P3 = Zepp_P3,
+        Zepp_P7 = Zepp_P7
+)
+```
+
+```{r}
+
+zepp_data <- Reduce(function(x,y){merge(x,y)}, expression_objs)
+
+zepp_data$lab <- "Unassigned"
+zepp_data$timepoint <- "Unassigned"
+zepp_data$lab <- sapply(str_split(zepp_data$orig.ident, "_"), function(x){x[1]})
+zepp_data$timepoint <- sapply(str_split(zepp_data$orig.ident, "_"), function(x){x[2]})
+
+```
+
+```{r}
+N_WORKERS <- 16
+plan("multiprocess", workers = N_WORKERS)
+
+zepp_data <- SCTransform(zepp_data, variable.features.n = 2000,
+                         batch_var = "orig.ident",
+                         conserve.memory = TRUE,
+                         vars.to.regress = c("percent.mt"),
+                         method = 'glmGamPoi',
+                         ncells = NULL)
+```
+
+```{r}
+zepp_data <- cluster_pca_umap(zepp_data, dims_umap = 1:35, dims_neighbors = 1:35, cluster_res = 1.6)
+```
+
+```{r save-listobj}
+saveRDS(zepp_data, "./data/20210802_zepp_data_sct.rds", compress = "bzip2")
+```
+
+```{r}
+marker_genes <- c("Hbb-bs", "Epcam", "Foxj1", "Scgb1a1", "Scgb3a2", "Abca3", "Hopx", "Col1a1", "Dcn", "Lum", "Acta2", "Wnt2", "Wnt5a", "Lgr6", "Pdgfra", "Pdgfrb", "Cspg4", "Wt1", "Pecam1", "Ccl21a", "Vwf", "Nrg1", "Plvap", "Car4", "Mki67", "Tnnt2", "Myl7", "Ascl1", "Ptprc")
+DotPlot(zepp_data, features = marker_genes) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+```{r}
+DimPlot(zepp_data, label = TRUE)
+```
+
+```{r}
+zepp_epi <- subset(zepp_data, idents = c(5, 10, 12, 17, 21, 28, 30, 34, 37, 39,
+                                         40, 41, 44, 45, 46, 47, 50, 51, 53))
+```
+
+```{r}
+
+zepp_epi <- SCTransform(zepp_epi, variable.features.n = 2000,
+                         batch_var = "orig.ident",
+                         conserve.memory = TRUE,
+                         vars.to.regress = c("percent.mt"),
+                         method = 'glmGamPoi',
+                         ncells = NULL)
+zepp_epi <- cluster_pca_umap(zepp_epi, dims_umap = 1:35, dims_neighbors = 1:35, cluster_res = 1.6)
+```
+
+```{r}
+marker_genes <- c("Hbb-bs", "Epcam", "Foxj1", "Scgb1a1", "Scgb3a2", "Abca3", "Hopx", "Col1a1", "Dcn", "Lum", "Acta2", "Wnt2", "Wnt5a", "Lgr6", "Pdgfra", "Pdgfrb", "Cspg4", "Wt1", "Pecam1", "Ccl21a", "Vwf", "Nrg1", "Plvap", "Car4", "Mki67", "Tnnt2", "Myl7", "Ascl1", "Ptprc")
+DotPlot(zepp_epi, features = marker_genes) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+```{r}
+zepp_epi_sub <- subset(zepp_epi, idents = c(28, 33, 34, 36, 37), invert = TRUE)
+zepp_epi_sub <- cluster_pca_umap(zepp_epi_sub, dims_umap = 1:35, dims_neighbors = 1:35, cluster_res = 1.6)
+```
+
+```{r}
+marker_genes <- c("Hbb-bs", "Epcam", "Foxj1", "Scgb1a1", "Scgb3a2", "Abca3", "Hopx", "Col1a1", "Dcn", "Lum", "Acta2", "Wnt2", "Wnt5a", "Lgr6", "Pdgfra", "Pdgfrb", "Cspg4", "Wt1", "Pecam1", "Ccl21a", "Vwf", "Nrg1", "Plvap", "Car4", "Mki67", "Tnnt2", "Myl7", "Ascl1", "Ptprc")
+DotPlot(zepp_epi_sub, features = marker_genes) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+```{r}
+marker_genes <- c("Mdk", "Mki67", # Early Epithelium
+                  "Cdkn1a", "Krt8", # Transitional?
+                  "Hopx", "Aqp5", #AT1
+                  "Sftpa1", "Sftpc", # AT2
+                  "Foxj1", "Dynlrb2", # Ciliated
+                  "Scgb1a1", "Scgb3a2", # Secretory
+                  "Ascl1", "Scg5" #Neuroendocrine
+)
+DotPlot(zepp_epi_sub, features = marker_genes) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+```{r}
+DimPlot(zepp_epi_sub, label = TRUE)
+```
+```{r}
+saveRDS(zepp_epi_sub, "./data/20210802_zepp_epi_data_sct.rds", compress = "bzip2")
+```

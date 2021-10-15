@@ -1,0 +1,269 @@
+---
+title: "scSEQ analysis of the developing epithelium"
+author: Nick Negretti
+date: 08/09/21
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung epithelium
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE, load-libraries}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+#source("./helper_functions/libraries.R")
+library(monocle3)
+library(tidyverse)
+library(knitr) # for kable
+options(knitr.table.format = "html")
+library(kableExtra) # for pretty tables kable_styling()
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+#N_WORKERS <- 12
+#plan("multiprocess", workers = N_WORKERS)
+
+```
+## Load data from merge and clean pipeline
+```{r}
+epi_relabel <- readRDS("./data/20210802_epi_devo_data_sct_labeled.rds")
+epi_relabel
+
+epi_at1_fits <- readRDS("./data/20210802_epi_filt_fits_at1.rds")
+epi_at2_fits <- readRDS("./data/20210802_epi_filt_fits_at2.rds")
+epi_ciliated_fits <- readRDS("./data/20210802_epi_filt_fits_ciliated.rds")
+epi_secretory_fits <- readRDS("./data/20210802_epi_filt_fits_secretory.rds")
+
+```
+
+```{r}
+epi_at1 <- subset(epi_relabel, celltype == "AT1")
+epi_at2 <- subset(epi_relabel, celltype == "AT2")
+epi_ciliated <- subset(epi_relabel, celltype == "Ciliated")
+epi_secretory <- subset(epi_relabel, celltype == "Secretory")
+```
+
+```{r}
+
+epi_at1_fits$cells_expressing <- Matrix::rowSums(GetAssayData(epi_at1, assay = "RNA", slot='data') > 0)[epi_at1_fits$gene_id]
+epi_at2_fits$cells_expressing <- Matrix::rowSums(GetAssayData(epi_at2, assay = "RNA", slot='data') > 0)[epi_at2_fits$gene_id]
+epi_ciliated_fits$cells_expressing <- Matrix::rowSums(GetAssayData(epi_ciliated, assay = "RNA", slot='data') > 0)[epi_ciliated_fits$gene_id]
+epi_secretory_fits$cells_expressing <- Matrix::rowSums(GetAssayData(epi_secretory, assay = "RNA", slot='data') > 0)[epi_secretory_fits$gene_id]
+
+epi_at1_fits$sum_exp_level <- Matrix::rowSums(GetAssayData(epi_at1, assay = "RNA", slot='data'))[epi_at1_fits$gene_id]
+epi_at2_fits$sum_exp_level <- Matrix::rowSums(GetAssayData(epi_at2, assay = "RNA", slot='data'))[epi_at2_fits$gene_id]
+epi_ciliated_fits$sum_exp_level <- Matrix::rowSums(GetAssayData(epi_ciliated, assay = "RNA", slot='data'))[epi_ciliated_fits$gene_id]
+epi_secretory_fits$sum_exp_level <- Matrix::rowSums(GetAssayData(epi_secretory, assay = "RNA", slot='data'))[epi_secretory_fits$gene_id]
+
+
+fits_list <- list(epi_at1_fits, epi_at2_fits, epi_ciliated_fits, epi_secretory_fits)
+names(fits_list) <- c("AT1", "AT2", "Ciliated", "Secretory")
+saveRDS(fits_list, "./data/20210831_epi_monocle_fits_list.rds", compress = "bzip2")
+```
+
+```{r}
+library(openxlsx)
+genes_assoc_time_at1 <- epi_at1_fits %>% filter(cells_expressing > 10 & q_value <= 0.05)
+genes_assoc_time_at2 <- epi_at2_fits %>% filter(cells_expressing > 10 & q_value <= 0.05)
+genes_assoc_time_ciliated <- epi_ciliated_fits %>% filter(cells_expressing > 10 & q_value <= 0.05)
+genes_assoc_time_secretory <- epi_secretory_fits %>% filter(cells_expressing > 10 & q_value <= 0.05)
+
+
+tested_celltype_names <- c("AT1", "AT2", "Ciliated", "Secretory")
+time_assoc_list <- list(genes_assoc_time_at1, genes_assoc_time_at2, genes_assoc_time_ciliated, genes_assoc_time_secretory)
+names(time_assoc_list) <- tested_celltype_names
+
+wb <- createWorkbook()
+for (idx in seq_along(tested_celltype_names)){
+  addWorksheet(wb, tested_celltype_names[idx])
+  writeData(wb, tested_celltype_names[idx], time_assoc_list[[idx]], rowNames = TRUE)
+}
+saveWorkbook(wb, file = "./data/figures/epi/genes_assoc_time_epi.xlsx", overwrite = TRUE)
+
+
+
+```
+# Use nichenet to find drivers..
+
+
+```{r}
+VlnPlot(epi_at1, "Tuba1a", group.by = "timepoint")
+```
+
+
+
+```{r}
+
+
+epi_relabel <- readRDS("./data/20210802_epi_devo_data_sct_labeled.rds")
+
+epi_relabel$celltype <- ordered(as.factor(epi_relabel$celltype),
+                                c("Early Epithelium",
+                                  "Transitional",
+                                  "AT1",
+                                  "AT2",
+                                  "Mki67+ AT2",
+                                  "Ciliated",
+                                  "Secretory",
+                                  "Neuroendocrine"
+                                ))
+
+
+meso_relabel <- readRDS("./data/20210802_meso_labeled.rds")
+
+## Markers by celltype
+meso_relabel$celltype <- ordered(meso_relabel$celltype, c("Prolif. Wnt2+ FB",
+                                                          "Wnt2+ FB",
+                                                          "Prolif. Myo FB",
+                                                          "Myofibroblast",
+                                                          "Adventitial FB",
+                                                          "Pericyte",
+                                                          "Mesothelium",
+                                                          "Smooth Muscle",
+                                                          "Cardiomyocyte"
+))
+
+
+gene_fits_Meso <- readRDS("./data/20210902_merged_filt_fits_Meso.rds")
+gene_fits_Meso$cells_expressing <- Matrix::rowSums(GetAssayData(meso_relabel, assay = "RNA", slot='data') > 0)[gene_fits_Meso$gene_id]
+
+```
+
+```{r}
+library(nichenetr)
+ligand_target_matrix <- base::readRDS(url("https://zenodo.org/record/3260758/files/ligand_target_matrix.rds"))
+lr_network <- base::readRDS(url("https://zenodo.org/record/3260758/files/lr_network.rds"))
+weighted_networks <- base::readRDS(url("https://zenodo.org/record/3260758/files/weighted_networks.rds"))
+weighted_networks_lr <- weighted_networks$lr_sig %>% inner_join(lr_network %>% distinct(from,to), by = c("from","to"))
+
+lr_network = lr_network %>% mutate(from = convert_human_to_mouse_symbols(from), to = convert_human_to_mouse_symbols(to)) %>% drop_na()
+colnames(ligand_target_matrix) = ligand_target_matrix %>% colnames() %>% convert_human_to_mouse_symbols()
+rownames(ligand_target_matrix) = ligand_target_matrix %>% rownames() %>% convert_human_to_mouse_symbols()
+
+ligand_target_matrix = ligand_target_matrix %>% .[!is.na(rownames(ligand_target_matrix)), !is.na(colnames(ligand_target_matrix))]
+
+weighted_networks_lr = weighted_networks_lr %>% mutate(from = convert_human_to_mouse_symbols(from), to = convert_human_to_mouse_symbols(to)) %>% drop_na()
+
+weighted_networks$lr_sig <- weighted_networks$lr_sig %>% mutate(from = convert_human_to_mouse_symbols(from), to = convert_human_to_mouse_symbols(to)) %>% drop_na()
+weighted_networks$gr <- weighted_networks$gr %>% mutate(from = convert_human_to_mouse_symbols(from), to = convert_human_to_mouse_symbols(to)) %>% drop_na()
+
+
+```
+
+
+```{r}
+
+expressed_genes_receiver <- (epi_at1_fits %>% filter(cells_expressing > 100))$gene_id
+
+# Replace below with expression from every other cell once that's done
+expressed_genes_sender <- (gene_fits_Meso %>% filter(cells_expressing > 100))$gene_id
+
+
+geneset_oi <- (epi_at1_fits %>% filter(cells_expressing > 100 & q_value <= 0.05))$gene_id
+head(geneset_oi)
+
+background_expressed_genes <- expressed_genes_receiver %>% .[. %in% rownames(ligand_target_matrix)]
+
+ligands <- lr_network %>% pull(from) %>% unique()
+expressed_ligands <- intersect(ligands, expressed_genes_sender)
+
+receptors <- lr_network %>% pull(to) %>% unique()
+expressed_receptors <- intersect(receptors,expressed_genes_receiver)
+
+lr_network_expressed <- lr_network %>% filter(from %in% expressed_ligands & to %in% expressed_receptors)
+head(lr_network_expressed)
+
+```
+
+```{r}
+potential_ligands = lr_network_expressed %>% pull(from) %>% unique()
+head(potential_ligands)
+```
+
+```{r}
+
+ligand_activities <- predict_ligand_activities(geneset = geneset_oi, background_expressed_genes = background_expressed_genes, ligand_target_matrix = ligand_target_matrix, potential_ligands = potential_ligands)
+ligand_activities %>% arrange(-pearson)
+```
+
+```{r}
+best_upstream_ligands = ligand_activities %>% top_n(30, pearson) %>% arrange(-pearson) %>% pull(test_ligand)
+head(best_upstream_ligands)
+
+```
+```{r}
+
+active_ligand_target_links_df = best_upstream_ligands %>% lapply(get_weighted_ligand_target_links,geneset = geneset_oi, ligand_target_matrix = ligand_target_matrix, n = 250) %>% bind_rows()
+
+nrow(active_ligand_target_links_df)
+head(active_ligand_target_links_df)
+
+```
+
+```{r}
+active_ligand_target_links = prepare_ligand_target_visualization(ligand_target_df = active_ligand_target_links_df, ligand_target_matrix = ligand_target_matrix, cutoff = 0.25)
+
+nrow(active_ligand_target_links)
+head(active_ligand_target_links)
+```
+
+```{r}
+order_ligands = intersect(best_upstream_ligands, colnames(active_ligand_target_links)) %>% rev()
+order_targets = active_ligand_target_links_df$target %>% unique()
+vis_ligand_target = active_ligand_target_links[order_targets,order_ligands] %>% t()
+
+p_ligand_target_network = vis_ligand_target %>% make_heatmap_ggplot("Ligands expressed in the mesenchyme","Receptors expressed by AT1 cells", color = "purple",legend_position = "top", x_axis_position = "top",legend_title = "Regulatory potential") + scale_fill_gradient2(low = "whitesmoke",  high = "purple", breaks = c(0,0.005,0.01)) + theme(axis.text.x = element_text(face = "italic"))
+
+p_ligand_target_network
+```
+
+```{r}
+
+lr_network_top = lr_network %>% filter(from %in% best_upstream_ligands & to %in% expressed_receptors) %>% distinct(from,to)
+best_upstream_receptors = lr_network_top %>% pull(to) %>% unique()
+
+lr_network_top_df = weighted_networks$lr_sig %>% filter(from %in% best_upstream_ligands & to %in% best_upstream_receptors)
+
+# convert to a matrix
+lr_network_top_df = lr_network_top_df %>% spread("from","weight",fill = 0)
+lr_network_top_matrix = lr_network_top_df %>% select(-to) %>% as.matrix() %>% magrittr::set_rownames(lr_network_top_df$to)
+
+# perform hierarchical clustering to order the ligands and receptors
+dist_receptors = dist(lr_network_top_matrix, method = "binary")
+hclust_receptors = hclust(dist_receptors, method = "ward.D2")
+order_receptors = hclust_receptors$labels[hclust_receptors$order]
+
+dist_ligands = dist(lr_network_top_matrix %>% t(), method = "binary")
+hclust_ligands = hclust(dist_ligands, method = "ward.D2")
+order_ligands_receptor = hclust_ligands$labels[hclust_ligands$order]
+
+```
+
+
+```{r}
+vis_ligand_receptor_network = lr_network_top_matrix[order_receptors, order_ligands_receptor]
+p_ligand_receptor_network = vis_ligand_receptor_network %>% t() %>% make_heatmap_ggplot("Ligands expressed in the mesenchyme","Receptors expressed by AT1 cells", color = "mediumvioletred", x_axis_position = "top",legend_title = "Prior interaction potential")
+p_ligand_receptor_network
+```
+
+```{r}
+ligand_pearson_matrix = ligand_activities %>% select(pearson) %>% as.matrix() %>% magrittr::set_rownames(ligand_activities$test_ligand)
+
+vis_ligand_pearson = ligand_pearson_matrix[order_ligands, ] %>% as.matrix(ncol = 1) %>% magrittr::set_colnames("Pearson")
+```
+```{r}
+p_ligand_pearson = vis_ligand_pearson %>% make_heatmap_ggplot("Ligands expressed in the mesenchyme","Ligand activity", color = "darkorange",legend_position = "top", x_axis_position = "top", legend_title = "Pearson correlation coefficient\ntarget gene prediction ability)")
+p_ligand_pearson
+```
+
+```{r}
+library(patchwork)
+p_ligand_pearson + p_ligand_target_network + plot_layout(widths = c(0.5, 10))
+```

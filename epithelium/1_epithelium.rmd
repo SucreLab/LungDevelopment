@@ -1,0 +1,348 @@
+---
+title: "scSEQ analysis of the developing epithelium"
+author: Nick Negretti
+date: 08/09/21
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung epithelium
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE, load-libraries}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+```
+## Load data from merge and clean pipeline
+```{r}
+epi_from_split <- readRDS("./data/20210802_epi_devo_data_sct.rds")
+epi_from_split$HTO_HTO_classification.global[is.na(epi_from_split$HTO_HTO_classification.global)] <- "Undefined"
+epi <- subset(epi_from_split, HTO_HTO_classification.global != "Doublet")
+```
+
+
+
+## UMAP and clustering
+```{r, fig.width = 12}
+
+# Make the tiempoints an ordered factor, so they are displayed consistantly
+epi$timepoint <- ordered(as.factor(epi$timepoint), unique(epi$timepoint))
+
+epi <- cluster_pca_umap(epi, k_param = 5, dims_umap = 1:25, dims_neighbors = 1:25, cluster_res = 0.2) # Note, this breaks if future is set to plan: multiprocess
+
+p_cluster <- DimPlot(epi) + umap_theme() +
+        scale_colour_manual(name = "Louvain Cluster", values = color_category_20) +
+        theme(aspect.ratio=1)
+p_time <- DimPlot(epi, group.by = "timepoint") + umap_theme() +
+        scale_colour_manual(name = "Timepoint", values = color_scanpy_default)+
+        theme(aspect.ratio=1)
+
+p_cluster + p_time + plot_annotation("Epithelium")
+
+```
+
+
+```{r}
+marker_genes <- c("Hbb-bs", "Epcam", "Foxj1", "Scgb1a1", "Scgb3a2", "Abca3", "Hopx", "Col1a1", "Dcn", "Lum", "Acta2", "Wnt2", "Wnt5a", "Lgr6", "Pdgfra", "Pdgfrb", "Cspg4", "Wt1", "Pecam1", "Ccl21a", "Vwf", "Nrg1", "Plvap", "Car4", "Mki67", "Tnnt2", "Myl7", "Ascl1", "Ptprc")
+DotPlot(epi, features = marker_genes) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+a <- 6
+```
+
+# Remove mesenchymal / Endothelial / Epithelial Doublets. Cluster 4 is Epcam+, Col1a1+, Pecam1+. This is non-biological.
+```{r}
+epi_sub <- subset(epi, idents = 4, invert = TRUE)
+```
+
+
+## UMAP and clustering
+```{r, fig.width = 12}
+
+epi_sub <- cluster_pca_umap(epi_sub, k_param = 5, dims_umap = 1:10, dims_neighbors = 1:10, cluster_res = 1.2)
+
+p_cluster <- DimPlot(epi_sub) + umap_theme() +
+  theme(aspect.ratio=1)
+p_time <- DimPlot(epi_sub, group.by = "timepoint") + umap_theme() +
+  scale_colour_manual(name = "Timepoint", values = color_scanpy_default)+
+  theme(aspect.ratio=1)
+
+p_cluster + p_time + plot_annotation("Epithelium")
+
+```
+
+
+```{r}
+marker_genes <- c("Hbb-bs", "Epcam", "Foxj1", "Scgb1a1", "Scgb3a2", "Abca3", "Hopx", "Col1a1", "Dcn", "Lum", "Acta2", "Wnt2", "Wnt5a", "Lgr6", "Pdgfra", "Pdgfrb", "Cspg4", "Wt1", "Pecam1", "Ccl21a", "Vwf", "Nrg1", "Plvap", "Car4", "Mki67", "Tnnt2", "Myl7", "Ascl1", "Ptprc", "Cldn5")
+DotPlot(epi_sub, features = marker_genes) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+
+
+```{r}
+N_WORKERS <- 20
+plan("multiprocess", workers = N_WORKERS)
+epi_sub_sct <- SCTransform(epi_sub, variable.features.n = 2000,
+                   batch_var = "orig.ident",
+                   conserve.memory = TRUE,
+                   vars.to.regress = c("percent.mt"),
+                   method = 'glmGamPoi',
+                   ncells = NULL)
+```
+```{r}
+var_feat_backup <- VariableFeatures(epi_sub_sct)
+# Lyz1 appears to be a non-biologically relevant discriminator of AT2 cells in mice.
+VariableFeatures(epi_sub_sct) <- VariableFeatures(epi_sub_sct)[VariableFeatures(epi_sub_sct) != "Lyz1"]
+epi_sub_sct <- cluster_pca_umap(epi_sub_sct, k_param = 5, dims_umap = 1:25, dims_neighbors = 1:25, cluster_res = 2.0)
+
+```
+
+
+```{r}
+plot_PCA <- DimHeatmap(epi_sub_sct, dims = 1:20, nfeatures = 40, fast = FALSE)
+ggsave("./data/figures/epi/PCA.jpg", plot_PCA, height = 40)
+```
+
+```{r}
+sum(epi_sub_sct$HTO_HTO_classification.global == "Doublet")
+```
+
+```{r}
+marker_genes <- c("Hbb-bs", "Epcam", "Foxj1", "Scgb1a1", "Scgb3a2", "Abca3", "Hopx", "Col1a1", "Dcn", "Lum", "Acta2", "Wnt2", "Wnt5a", "Lgr6", "Pdgfra", "Pdgfrb", "Cspg4", "Wt1", "Pecam1", "Ccl21a", "Vwf", "Nrg1", "Plvap", "Car4", "Mki67", "Tnnt2", "Myl7", "Ascl1", "Ptprc", "Cldn5")
+DotPlot(epi_sub_sct, features = marker_genes) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+```{r}
+
+p_cluster <- DimPlot(epi_sub_sct, label = TRUE) + umap_theme() +
+  theme(aspect.ratio=1)
+p_time <- DimPlot(epi_sub_sct, group.by = "timepoint") + umap_theme() +
+  scale_colour_manual(name = "Timepoint", values = color_scanpy_default)+
+  theme(aspect.ratio=1)
+
+p_cluster + p_time + plot_annotation("Epithelium")
+
+```
+
+
+```{r}
+N_WORKERS <- 20
+plan("multiprocess", workers = N_WORKERS)
+epi_sub_sct2 <- SCTransform(subset(epi_sub_sct, idents = c(43), invert = TRUE), variable.features.n = 2000,
+                           batch_var = "orig.ident",
+                           conserve.memory = TRUE,
+                           vars.to.regress = c("percent.mt"),
+                           method = 'glmGamPoi',
+                           ncells = NULL)
+var_feat_backup2 <- VariableFeatures(epi_sub_sct2)
+VariableFeatures(epi_sub_sct2) <- VariableFeatures(epi_sub_sct2)[VariableFeatures(epi_sub_sct2) != "Lyz1"]
+```
+
+```{r}
+future_lapply(c(5:25), function(x){
+  ggsave(paste0("./data/figures/epi/", x, "_dim_umap.png"),
+         cluster_pca_umap(epi_sub_sct2, k_param = 5, dims_umap = 1:x, dims_neighbors = 1:x, cluster_res = 0.2) %>%
+           DimPlot(.) + umap_theme() +
+           scale_colour_manual(name = "Louvain Cluster", values = color_category_20) +
+           theme(aspect.ratio=1))
+})
+```
+
+
+```{r}
+epi_sub_sct2 <- cluster_pca_umap(epi_sub_sct2, k_param = 5, dims_umap = c(1:9,12:13), dims_neighbors = 1:12, cluster_res = 0.6, umap_neighbors = 30)
+
+p_cluster <- DimPlot(epi_sub_sct2, label = TRUE) + umap_theme() +
+  theme(aspect.ratio=1)
+p_time <- DimPlot(epi_sub_sct2, group.by = "timepoint") + umap_theme() +
+  scale_colour_manual(name = "Timepoint", values = color_scanpy_default)+
+  theme(aspect.ratio=1)
+
+FeaturePlot(epi_sub_sct2, c("Ascl1", "Cdkn1a"))
+p_cluster + p_time + plot_annotation("Epithelium")
+```
+
+
+```{r}
+plot_PCA_sub2 <- DimHeatmap(epi_sub_sct2, dims = 1:20, nfeatures = 40, fast = FALSE)
+ggsave("./data/figures/epi/PCA_sub2.jpg", plot_PCA_sub2, height = 40)
+```
+
+```{r}
+epi_sub_subc <- FindSubCluster(epi_sub_sct2, 10, graph.name = "SCT_snn", subcluster.name = "sub.cluster", resolution = 0.2)
+epi_sub_subc$sub.cluster <- as.factor(epi_sub_subc$sub.cluster)
+levels(epi_sub_subc$sub.cluster) <- 1:length(levels(epi_sub_subc$sub.cluster))
+Idents(epi_sub_subc) <- epi_sub_subc$sub.cluster
+
+
+epi_sub_subc <- FindSubCluster(epi_sub_subc, 21, graph.name = "SCT_snn", subcluster.name = "sub.cluster", resolution = 0.2)
+epi_sub_subc$sub.cluster <- as.factor(epi_sub_subc$sub.cluster)
+levels(epi_sub_subc$sub.cluster) <- 1:length(levels(epi_sub_subc$sub.cluster))
+Idents(epi_sub_subc) <- epi_sub_subc$sub.cluster
+
+epi_sub_subc <- FindSubCluster(epi_sub_subc, 16, graph.name = "SCT_snn", subcluster.name = "sub.cluster", resolution = 0.2)
+epi_sub_subc$sub.cluster <- as.factor(epi_sub_subc$sub.cluster)
+levels(epi_sub_subc$sub.cluster) <- 1:length(levels(epi_sub_subc$sub.cluster))
+Idents(epi_sub_subc) <- epi_sub_subc$sub.cluster
+
+epi_sub_subc <- FindSubCluster(epi_sub_subc, 25, graph.name = "SCT_snn", subcluster.name = "sub.cluster", resolution = 0.1)
+epi_sub_subc$sub.cluster <- as.factor(epi_sub_subc$sub.cluster)
+levels(epi_sub_subc$sub.cluster) <- 1:length(levels(epi_sub_subc$sub.cluster))
+Idents(epi_sub_subc) <- epi_sub_subc$sub.cluster
+```
+
+```{r}
+
+p_cluster <- DimPlot(epi_sub_subc, label = TRUE) + umap_theme() +
+  theme(aspect.ratio=1)
+p_time <- DimPlot(epi_sub_subc, group.by = "timepoint") + umap_theme() +
+  scale_colour_manual(name = "Timepoint", values = color_scanpy_default)+
+  theme(aspect.ratio=1)
+
+FeaturePlot(epi_sub_subc, c("Soat1", "Cdkn1a"))
+p_cluster + p_time + plot_annotation("Epithelium")
+
+```
+
+
+```{r}
+marker_genes <- c("Sftpa1", "Sftpc", # AT2
+                  "Hopx", "Aqp5", #AT1
+                  "Foxj1", "Dynlrb2", # Ciliated
+                  "Mdk", "Mki67", # Primordial
+                  "Scgb1a1", "Scgb3a2", # Secretory
+                  "Cdkn1a", "Krt8", # Transitional?
+                  "Ascl1", "Scg5" #Neuroendocrine
+)
+DotPlot(epi_sub_subc, features = marker_genes)
+
+```
+
+
+```{r}
+clust_test_markers <- FindMarkers(epi_sub_subc, 20, NULL)
+clust_test_markers$gene <- rownames(clust_test_markers)  # Workaround for print issue
+clust_test_markers
+```
+
+```{r}
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+filename <- "./data/20210802_epi_overcluster_markers.rds"
+if (!file.exists(filename)) {
+  markers <- parallelFindAllMarkers(epi_sub_subc)
+
+  names(markers) <- levels(Idents(epi_sub_subc))
+  saveRDS(markers, filename)
+} else {
+  markers <- readRDS(filename)
+}
+
+wb_markers_names <- levels(Idents(epi_sub_subc))
+wb_markers <- createWorkbook()
+for (idx in seq_along(wb_markers_names)){
+  addWorksheet(wb_markers, wb_markers_names[idx])
+  writeData(wb_markers, wb_markers_names[idx], markers[[idx]], rowNames = TRUE)
+}
+saveWorkbook(wb_markers, file = "./data/20210802_epi_overcluster_markers.xlsx", overwrite = TRUE)
+
+```
+
+
+```{r}
+
+epi_relabel <- epi_sub_subc
+epi_relabel$louvain <- Idents(epi_relabel)
+epi_relabel$celltype <- Idents(epi_relabel)
+
+idxes <- rep("AT2", length(unique(Idents(epi_relabel))))
+idxes[c(16)] <- "Mki67+ AT2"
+idxes[c(30, 9, 7)] <- "Transitional"
+idxes[c(5, 9, 10, 14, 17)] <- "AT1"
+idxes[c(12)] <- "Ciliated"
+idxes[c(11)] <- "Secretory"
+idxes[c(18, 19)] <- "Neuroendocrine"
+idxes[c(2, 3, 4, 8, 27, 28, 29)] <- "Early Epithelium"
+
+epi_relabel <- subset(epi_relabel, idents = 20, invert = TRUE)  # A few neurons snuck in
+levels(epi_relabel$celltype) <- idxes
+levels(Idents(epi_relabel)) <- 1:length(levels(Idents(epi_relabel)))
+```
+
+
+
+```{r}
+DimPlot(epi_relabel, group.by = "celltype") + scale_color_manual(values = color_scanpy_default)
+```
+
+
+```{r}
+DimPlot(epi_relabel)
+```
+
+```{r}
+FeaturePlot(epi_relabel, "Cdkn1a")
+```
+
+```{r}
+p_cluster <- DimPlot(epi_relabel, group.by = "celltype") + umap_theme() +
+  scale_colour_manual(name = "Cluster", values = color_category_20) +
+  theme(aspect.ratio=1)
+p_time <- DimPlot(epi_relabel, group.by = "timepoint") + umap_theme() +
+  scale_colour_manual(name = "Timepoint", values = color_scanpy_default)+
+  theme(aspect.ratio=1)
+
+p_cluster + p_time + plot_annotation("Epithelium")
+```
+
+
+# Reorder the clusters
+```{r}
+epi_relabel$celltype <- ordered(as.factor(epi_relabel$celltype),
+                                c("Early Epithelium",
+                                  "Transitional",
+                                  "AT1",
+                                  "AT2",
+                                  "Mki67+ AT2",
+                                  "Ciliated",
+                                  "Secretory",
+                                  "Neuroendocrine"
+                                ))
+
+```
+
+```{r}
+plan("multiprocess", workers = N_WORKERS)
+filename <- "./data/20210802_epi_devo_data_sct_labeled.rds"
+if (!file.exists(filename)) {
+  saveRDS(epi_relabel, filename, compress = "bzip2")
+}
+```
+
+
+```{r}
+marker_genes <- c("Mdk", "Mki67", # Early Epithelium
+                  "Cdkn1a", "Krt8", # Transitional?
+                  "Hopx", "Ager", #AT1
+                  "Sftpa1", "Sftpc", # AT2
+                  "Foxj1", "Dynlrb2", # Ciliated
+                  "Scgb1a1", "Scgb3a2", # Secretory
+                  "Ascl1", "Scg5" #Neuroendocrine
+)
+
+DotPlot(epi_relabel, features = marker_genes, group.by = "celltype") +
+  scale_color_distiller(palette = "Blues", direction = 1, name = "Expression") +
+  scale_y_discrete(limits=rev) +
+  theme(axis.title = element_blank(),
+        axis.text.x = element_text(face = "italic", angle = 45, vjust = 0.5))
+```

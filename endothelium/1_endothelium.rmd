@@ -1,0 +1,231 @@
+---
+title: "scSEQ analysis of the developing epithelium - revision"
+author: Nick Negretti
+date: 08/09/21
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung epithelium
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE, load-libraries}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+```
+## Load data from merge and clean pipeline
+```{r}
+endo_from_split <- readRDS("./data/20210802_endo_devo_data_sct.rds")
+endo_from_split$HTO_HTO_classification.global[is.na(endo_from_split$HTO_HTO_classification.global)] <- "Undefined"
+endo <- subset(endo_from_split, HTO_HTO_classification.global != "Doublet")
+```
+
+
+## UMAP and clustering
+```{r, fig.width = 12}
+
+# Make the tiempoints an ordered factor, so they are displayed consistantly
+endo$timepoint <- ordered(as.factor(endo$timepoint), unique(endo$timepoint))
+
+endo <- cluster_pca_umap(endo, k_param = 5, dims_umap = 1:25, dims_neighbors = 1:25, cluster_res = 0.2)
+
+p_cluster <- DimPlot(endo) + umap_theme() +
+        scale_colour_manual(name = "Louvain Cluster", values = color_category_20) +
+        theme(aspect.ratio=1)
+p_time <- DimPlot(endo, group.by = "timepoint") + umap_theme() +
+        scale_colour_manual(name = "Timepoint", values = color_scanpy_default)+
+        theme(aspect.ratio=1)
+
+p_cluster + p_time + plot_annotation("Endothelium")
+
+```
+
+
+```{r}
+marker_genes <- c("Hbb-bs", "Epcam", "Foxj1", "Scgb1a1", "Scgb3a2", "Abca3", "Hopx", "Col1a1", "Dcn", "Lum", "Acta2", "Wnt2", "Wnt5a", "Lgr6", "Pdgfra", "Pdgfrb", "Cspg4", "Wt1", "Pecam1", "Ccl21a", "Vwf", "Nrg1", "Plvap", "Car4", "Mki67", "Tnnt2", "Myl7", "Ascl1", "Ptprc")
+DotPlot(endo, features = marker_genes) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+
+```{r}
+N_WORKERS <- 8
+plan("multiprocess", workers = N_WORKERS)
+filename <- "./data/20210802_endo_overcluster_markers.rds"
+if (!file.exists(filename)) {
+  markers <- parallelFindAllMarkers(endo)
+
+  names(markers) <- levels(Idents(endo))
+  saveRDS(markers, filename)
+} else {
+  markers <- readRDS(filename)
+}
+
+wb_markers_names <- levels(Idents(endo))
+wb_markers <- createWorkbook()
+for (idx in seq_along(wb_markers_names)){
+  addWorksheet(wb_markers, wb_markers_names[idx])
+  writeData(wb_markers, wb_markers_names[idx], markers[[idx]], rowNames = TRUE)
+}
+saveWorkbook(wb_markers, file = "./data/20210802_endo_overcluster_markers.xlsx", overwrite = TRUE)
+
+```
+
+
+## UMAP and clustering
+```{r, fig.width = 12}
+
+endo_red_res <- cluster_pca_umap(endo, k_param = 5, dims_umap = 1:15, dims_neighbors = 1:15, cluster_res = 0.3)
+
+#levels(Idents(epi)) <- c(0, 1, 0, 0, 2, 0, 3, 0, 4, 0, 5, 6)
+
+p_cluster <- DimPlot(endo_red_res) + umap_theme() +
+  theme(aspect.ratio=1)
+p_time <- DimPlot(endo_red_res, group.by = "timepoint") + umap_theme() +
+  scale_colour_manual(name = "Timepoint", values = color_scanpy_default)+
+  theme(aspect.ratio=1)
+
+p_cluster + p_time + plot_annotation("Endothelium")
+
+```
+
+
+
+
+```{r}
+N_WORKERS <- 11
+plan("multiprocess", workers = N_WORKERS)
+filename <- "./data/20210802_endo_overcluster_markers2.rds"
+if (!file.exists(filename)) {
+  markers <- parallelFindAllMarkers(endo_red_res)
+
+  names(markers) <- levels(Idents(endo_red_res))
+  saveRDS(markers, filename)
+} else {
+  markers <- readRDS(filename)
+}
+
+wb_markers_names <- levels(Idents(endo_red_res))
+wb_markers <- createWorkbook()
+for (idx in seq_along(wb_markers_names)){
+  addWorksheet(wb_markers, wb_markers_names[idx])
+  writeData(wb_markers, wb_markers_names[idx], markers[[idx]], rowNames = TRUE)
+}
+saveWorkbook(wb_markers, file = "./data/20210802_endo_overcluster_markers2.xlsx", overwrite = TRUE)
+
+```
+
+
+
+```{r}
+plot_PCA <- DimHeatmap(endo_red_res, dims = 1:20, nfeatures = 40, fast = FALSE)
+ggsave("./data/figures/endo/PCA.jpg", plot_PCA, height = 40)
+```
+
+```{r}
+sum(endo_red_res$HTO_HTO_classification.global == "Doublet")
+```
+
+```{r}
+future_lapply(c(5:30), function(x){
+  ggsave(paste0("./data/figures/endo/", x, "_dim_umap.png"),
+         cluster_pca_umap(endo_red_res, k_param = 5, dims_umap = 1:x, dims_neighbors = 1:x, cluster_res = 0.2) %>%
+           DimPlot(.) + umap_theme() +
+           scale_colour_manual(name = "Louvain Cluster", values = color_category_20) +
+           theme(aspect.ratio=1))
+})
+```
+
+
+```{r}
+marker_genes <- c("Gpihbp1", "Kit", # Microvascular
+                  "Car4", "Kdr", # Car4
+                  "Mki67", "Top2a", # Proliferating miEC
+                  "Vwf", "Vcam1", #macrovascular
+                  "Vegfc", "Prss23", #Venous macrovascular
+                  "Cxcl12", "Pcsk5", #Artearial macrovascular
+                  "Ephb4", # Vein
+                  "Flt4", "Ccl21a" # Lymphatic
+)
+DotPlot(endo_red_res, features = marker_genes)
+```
+
+
+```{r}
+
+
+endo_relabel <- endo_red_res
+endo_relabel$louvain <- as.factor(endo_red_res$seurat_clusters)
+endo_relabel$celltype <- as.factor(endo_red_res$seurat_clusters)
+
+# ?: 23, 31..eh, 35, 48
+idxes <- levels(endo_relabel$celltype)
+labels <- rep("gCap", length(levels(endo_relabel$celltype)))
+labels[idxes %in% c(1)] <- "aCap"
+labels[idxes %in% c(5)] <- "Prolif. gCap"
+labels[idxes %in% c(8)] <- "Arterial maEC"
+labels[idxes %in% c(7)] <- "Venous maEC"
+labels[idxes %in% c(9)] <- "Lymphatic"
+
+levels(endo_relabel$celltype) <- labels
+
+
+```
+
+
+```{r}
+DimPlot(endo_relabel, group.by = "celltype") + scale_color_manual(values = color_scanpy_default)
+```
+
+
+```{r}
+DimPlot(endo_relabel)
+```
+
+```{r}
+FeaturePlot(endo_relabel, "Car4")
+```
+
+
+# Reorder the clusters
+```{r}
+endo_relabel$celltype <- ordered(as.factor(endo_relabel$celltype),
+                                c("Arterial maEC",
+                                  "Venous maEC",
+                                  "Prolif. gCap",
+                                  "gCap",
+                                  "aCap",
+                                  "Lymphatic"
+                                ))
+
+```
+
+```{r}
+p_cluster <- DimPlot(endo_relabel, group.by = "celltype") + umap_theme() +
+        scale_colour_manual(name = "Cluster", values = color_category_20) +
+        theme(aspect.ratio=1)
+p_time <- DimPlot(endo_relabel, group.by = "timepoint") + umap_theme() +
+        scale_colour_manual(name = "Timepoint", values = color_scanpy_default)+
+        theme(aspect.ratio=1)
+
+p_cluster + p_time + plot_annotation("Endothleium")
+```
+
+```{r}
+plan("multiprocess", workers = N_WORKERS)
+filename <- "./data/20210802_endo_devo_data_sct_labeled.rds"
+if (!file.exists(filename)) {
+  saveRDS(endo_relabel, filename, compress = "bzip2")
+}
+```

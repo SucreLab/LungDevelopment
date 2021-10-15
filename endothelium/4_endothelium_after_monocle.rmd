@@ -1,0 +1,186 @@
+---
+title: "scSEQ analysis of the developing epithelium"
+author: Nick Negretti
+date: 08/09/21
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung epithelium
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE, load-libraries}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+#source("./helper_functions/libraries.R")
+library(monocle3)
+library(tidyverse)
+library(knitr) # for kable
+options(knitr.table.format = "html")
+library(kableExtra) # for pretty tables kable_styling()
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+#N_WORKERS <- 12
+#plan("multiprocess", workers = N_WORKERS)
+
+```
+## Load data from merge and clean pipeline
+```{r}
+endo_relabel <- readRDS("./data/20210802_endo_devo_data_sct_labeled.rds")
+endo_relabel
+
+endo_artmaEC_fits <- readRDS("./data/20210802_endo_filt_fits_art_maEC.rds")
+endo_venmaEC_fits <- readRDS("./data/20210802_endo_filt_fits_ven_maEC.rds")
+endo_prolifgCap_fits <- readRDS("./data/20210802_endo_filt_fits_prolif_gcap.rds")
+endo_gCap_fits <- readRDS("./data/20210802_endo_filt_fits_gcap.rds")
+endo_aCap_fits <- readRDS("./data/20210802_endo_filt_fits_acap.rds")
+endo_lymphatic_fits <- readRDS("./data/20210802_meso_filt_fits_lymphatic.rds")
+
+```
+
+```{r}
+
+endo_art_maEC <- subset(endo_relabel, celltype == "Arterial maEC")
+endo_ven_maEC <- subset(endo_relabel, celltype == "Venous maEC")
+endo_prolif_gCap <- subset(endo_relabel, celltype == "Prolif. gCap")
+endo_gCap <- subset(endo_relabel, celltype == "gCap")
+endo_aCap <- subset(endo_relabel, celltype == "aCap")
+endo_lymphatic <- subset(endo_relabel, celltype == "Lymphatic")
+
+```
+
+```{r}
+
+endo_artmaEC_fits$cells_expressing <- Matrix::rowSums(GetAssayData(endo_art_maEC, assay = "RNA", slot='data') > 0)[endo_artmaEC_fits$gene_id]
+endo_venmaEC_fits$cells_expressing <- Matrix::rowSums(GetAssayData(endo_ven_maEC, assay = "RNA", slot='data') > 0)[endo_venmaEC_fits$gene_id]
+endo_prolifgCap_fits$cells_expressing <- Matrix::rowSums(GetAssayData(endo_prolif_gCap, assay = "RNA", slot='data') > 0)[endo_prolifgCap_fits$gene_id]
+endo_gCap_fits$cells_expressing <- Matrix::rowSums(GetAssayData(endo_gCap, assay = "RNA", slot='data') > 0)[endo_gCap_fits$gene_id]
+endo_aCap_fits$cells_expressing <- Matrix::rowSums(GetAssayData(endo_aCap, assay = "RNA", slot='data') > 0)[endo_aCap_fits$gene_id]
+endo_lymphatic_fits$cells_expressing <- Matrix::rowSums(GetAssayData(endo_lymphatic, assay = "RNA", slot='data') > 0)[endo_lymphatic_fits$gene_id]
+
+
+endo_artmaEC_fits$sum_exp_level <- Matrix::rowSums(GetAssayData(endo_art_maEC, assay = "RNA", slot='data'))[endo_artmaEC_fits$gene_id]
+endo_venmaEC_fits$sum_exp_level <- Matrix::rowSums(GetAssayData(endo_ven_maEC, assay = "RNA", slot='data'))[endo_venmaEC_fits$gene_id]
+endo_prolifgCap_fits$sum_exp_level <- Matrix::rowSums(GetAssayData(endo_prolif_gCap, assay = "RNA", slot='data'))[endo_prolifgCap_fits$gene_id]
+endo_gCap_fits$sum_exp_level <- Matrix::rowSums(GetAssayData(endo_gCap, assay = "RNA", slot='data'))[endo_gCap_fits$gene_id]
+endo_aCap_fits$sum_exp_level <- Matrix::rowSums(GetAssayData(endo_aCap, assay = "RNA", slot='data'))[endo_aCap_fits$gene_id]
+endo_lymphatic_fits$sum_exp_level <- Matrix::rowSums(GetAssayData(endo_lymphatic, assay = "RNA", slot='data'))[endo_lymphatic_fits$gene_id]
+
+fits_list <- list(endo_artmaEC_fits, endo_venmaEC_fits, endo_prolifgCap_fits, endo_gCap_fits, endo_aCap_fits, endo_lymphatic_fits)
+names(fits_list) <- c("Arterial maEC", "Venous maEC", "Prolif. gCap", "gCap", "aCap", "Lymphatic")
+saveRDS(fits_list, "./data/20210831_endo_monocle_fits_list.rds", compress = "bzip2")
+```
+
+```{r}
+
+genes_assoc_time_artmaEC <- endo_artmaEC_fits %>% filter(cells_expressing > 20 & q_value <= 0.05)
+genes_assoc_time_venmaEC <- endo_venmaEC_fits %>% filter(cells_expressing > 20 & q_value <= 0.05)
+genes_assoc_time_prolifgCap <- endo_prolifgCap_fits %>% filter(cells_expressing > 20 & q_value <= 0.05)
+genes_assoc_time_gCap <- endo_gCap_fits %>% filter(cells_expressing > 20 & q_value <= 0.05)
+genes_assoc_time_aCAp <- endo_aCap_fits %>% filter(cells_expressing > 20 & q_value <= 0.05)
+genes_assoc_time_lymphatic <- endo_lymphatic_fits %>% filter(cells_expressing > 20 & q_value <= 0.05)
+
+
+tested_celltype_names <- c("Arterial maEC", "Venous maEC", "Prolif. gCap", "gCap", "aCap", "Lymphatic")
+time_assoc_list <- list(genes_assoc_time_artmaEC, genes_assoc_time_venmaEC, genes_assoc_time_prolifgCap, genes_assoc_time_gCap,
+                        genes_assoc_time_aCAp, genes_assoc_time_lymphatic)
+names(time_assoc_list) <- tested_celltype_names
+
+wb <- createWorkbook()
+for (idx in seq_along(tested_celltype_names)){
+  addWorksheet(wb, tested_celltype_names[idx])
+  writeData(wb, tested_celltype_names[idx], time_assoc_list[[idx]], rowNames = TRUE)
+}
+saveWorkbook(wb, file = "./data/figures/endo/genes_assoc_time_endo.xlsx", overwrite = TRUE)
+
+
+
+```
+
+# Heatmap of expressed genes
+
+```{r}
+exp <- AverageExpression(endo_aCap, features = genes_assoc_time_aCAp$gene_id, group.by = "timepoint")[["SCT"]]
+exp_filt <- Matrix::rowSums(exp > 20)
+exp_norm <- t(apply(exp_filt, 1, function(x)(x-min(x))/(max(x)-min(x))))
+```
+
+```{r}
+library("heatmaply")
+```
+
+
+```{r}
+heatmaply(exp_norm, file = "./data/figures/endo/endo_acap_time_heatmap.png", Colv = FALSE)
+```
+
+
+# Use nichenet to find drivers..
+
+
+```{r}
+library(nichenetr)
+ligand_target_matrix <- base::readRDS(url("https://zenodo.org/record/3260758/files/ligand_target_matrix.rds"))
+lr_network <- base::readRDS(url("https://zenodo.org/record/3260758/files/lr_network.rds"))
+weighted_networks <- base::readRDS(url("https://zenodo.org/record/3260758/files/weighted_networks.rds"))
+weighted_networks_lr <- weighted_networks$lr_sig %>% inner_join(lr_network %>% distinct(from,to), by = c("from","to"))
+```
+
+
+```{r}
+expressed_genes_receiver <- (endo_aCap_fits %>% filter(cells_expressing > 20))$gene_id
+
+# Replace below with expression from every other cell once that's done
+expressed_genes_sender <- c((endo_artmaEC_fits %>% filter(cells_expressing > 20))$gene_id,
+                            (endo_venmaEC_fits %>% filter(cells_expressing > 20))$gene_id,
+                            (endo_prolifgCap_fits %>% filter(cells_expressing > 20))$gene_id,
+                            (endo_gCap_fits %>% filter(cells_expressing > 20))$gene_id,
+                            (endo_aCap_fits %>% filter(cells_expressing > 20))$gene_id,
+                            (endo_lymphatic_fits %>% filter(cells_expressing > 20))$gene_id)
+
+
+geneset_oi <- rownames(genes_assoc_time_aCAp)
+head(geneset_oi)
+
+background_expressed_genes <- expressed_genes_receiver %>% .[. %in% rownames(ligand_target_matrix)]
+
+ligands <- lr_network %>% pull(from) %>% unique()
+expressed_ligands <- intersect(ligands, expressed_genes_sender)
+
+receptors <- lr_network %>% pull(to) %>% unique()
+expressed_receptors <- intersect(receptors,expressed_genes_receiver)
+
+lr_network_expressed <- lr_network %>% filter(from %in% expressed_ligands & to %in% expressed_receptors)
+head(lr_network_expressed)
+
+```
+
+```{r}
+potential_ligands = lr_network_expressed %>% pull(from) %>% unique()
+head(potential_ligands)
+```
+
+```{r}
+
+ligand_activities <- predict_ligand_activities(geneset = geneset_oi, background_expressed_genes = background_expressed_genes, ligand_target_matrix = ligand_target_matrix, potential_ligands = potential_ligands)
+
+```
+
+
+```{r}
+Idents(merged_obj) <- merged_obj$celltype
+nichenet_output <- nichenet_seuratobj_aggregate(
+        seurat_obj = merged_obj,
+        receiver = "AT1",
+        condition_colname = "condition", condition_oi = "INJ", condition_reference = "WT",
+        sender = c("Wnt2+", "Prolif. Wnt2+", "Prolif. Myofibroblast", "Myofibroblast", "AT2"),
+        ligand_target_matrix = ligand_target_matrix, lr_network = lr_network, weighted_networks = weighted_networks, organism = "mouse")
+
+```

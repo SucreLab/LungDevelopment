@@ -1,0 +1,322 @@
+---
+title: "scSEQ analysis of developing lung cells - revision"
+author: Nick Negretti
+date: 8/2/21
+output: rmarkdown::github_document
+---
+
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE, load-libraries}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+```
+
+
+```{r soupx-func}
+runSoupX <- function(raw_counts, filtered_counts, mat_out_path){
+  in_soup <- SoupChannel(tod = raw_counts[rownames(raw_counts) != "Gm42418",],
+                         toc = filtered_counts[rownames(filtered_counts) != "Gm42418",],
+                         metaData = NULL, soupRange = c(0, 10), keepDroplets = FALSE) # Gm42418 is a rRNA contaminant - remove it now
+  sr_obj <- CreateSeuratObject(in_soup$toc)
+  # Fast preliminary clustering and normalization for soupx run
+  sr_obj <- NormalizeData(sr_obj)
+  sr_obj <- FindVariableFeatures(sr_obj)
+  sr_obj <- ScaleData(sr_obj)
+  sr_obj <- RunPCA(sr_obj,pcs.compute=30)
+  sr_obj <- RunUMAP(sr_obj,dims=1:15)
+  sr_obj <- FindNeighbors(sr_obj,dims=1:15)
+  sr_obj <- FindClusters(sr_obj,resolution=1.2)
+  sr_DF <-  as.data.frame(sr_obj@reductions$umap@cell.embeddings)
+  colnames(sr_DF) <- c('RD1','RD2')
+  sr_DF$Cluster <- factor(sr_obj@meta.data[rownames(sr_DF),'RNA_snn_res.1.2'])
+
+  #Specify background RNA genes
+  background_RNA_genes <- c("Dcn", "Bgn", "Aspn", "Ecm2", "Fos", "Hbb-bs", "Hbb-bt", "Hba-a1", "Hba-a2", "Lyz1", "Lyz2", "Mgp", "Postn", "Scgb1a1")
+
+  #Specify background RNA genes for epithelial specific cell sort
+  est_expression <- estimateNonExpressingCells(in_soup,
+                                               list(SLRP = background_RNA_genes),
+                                               clusters = setNames(sr_DF$Cluster, rownames(sr_DF)),
+                                               FDR = 0.05,
+                                               maximumContamination = 1.5)
+
+  ## calculate contamination and adjust the counts.
+  in_soup <- setClusters(in_soup, sr_DF$Cluster)
+  in_soup <- calculateContaminationFraction(in_soup, list(SLRP = background_RNA_genes), useToEst = est_expression, forceAccept = TRUE)
+  head(in_soup$metaData)
+
+  ## adjust the counts based on contamination fraction
+  ## Return dgCMatrix
+  #return(adjustCounts(in_soup, roundToInt = TRUE))
+  adj_counts <- adjustCounts(in_soup)
+  #Matrix::writeMM(adj_counts, file = paste0(mat_out_path))
+  DropletUtils::write10xCounts(mat_out_path, adj_counts)
+  return(adj_counts)
+}
+```
+
+
+```{r construct-futures}
+# Construct futures for parallel processing of soupx
+# Subset the object here by quality - this will be useful later for dropping bad cells for hashing
+pct_mt_high <- 10
+pct_mt_low <- 0.5
+min_nfeature <- 700
+
+WT_E12 %<-% {runSoupX(Read10X("./data/seq/WT_E12/raw_feature_bc_matrix E12")$`Gene Expression`,
+                      Read10X("./data/seq/WT_E12/filtered_feature_bc_matrix E12")$`Gene Expression`,
+            "./data/seq/WT_E12/E12_soupx_counts/") %>%
+  CreateSeuratObject(counts = ., project = "WT_E12") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+WT_E15 %<-% {runSoupX(Read10X("./data/seq/WT_E15/raw_feature_bc_matrix JS12 E15-2")$`Gene Expression`,
+                      Read10X("./data/seq/WT_E15/filtered_feature_bc_matrix JS12 E15-2")$`Gene Expression`,
+                      "./data/seq/WT_E15/E15_soupx_counts/") %>%
+  CreateSeuratObject(counts = ., project = "WT_E15") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+WT_E16 %<-% {runSoupX(Read10X("./data/seq/WT_E16_5583_JS5/raw_feature_bc_matrix")$`Gene Expression`,
+                      Read10X("./data/seq/WT_E16_5583_JS5/filtered_feature_bc_matrix")$`Gene Expression`,
+                      "./data/seq/WT_E16_5583_JS5/E16_soupx_counts/") %>%
+  CreateSeuratObject(counts = ., project = "WT_E16") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+WT_E18 %<-% {runSoupX(Read10X("./data/seq/WT_E18/raw_feature_bc_matrix E18")$`Gene Expression`,
+                      Read10X("./data/seq/WT_E18/filtered_feature_bc_matrix E18")$`Gene Expression`,
+                      "./data/seq/WT_E18/E18_soupx_counts/") %>%
+  CreateSeuratObject(counts = ., project = "WT_E18") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+WT_P0_1 %<-% {runSoupX(Read10X("./data/seq/WT_P0/remap_P0_JS_1/raw_feature_bc_matrix")$`Gene Expression`,
+                       Read10X("./data/seq/WT_P0/remap_P0_JS_1/filtered_feature_bc_matrix")$`Gene Expression`,
+                       "./data/seq/WT_P0/P0_1_soupx_counts/") %>%
+  CreateSeuratObject(counts = ., project = "WT_P0_1") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+WT_P0_2 %<-% {runSoupX(Read10X("./data/seq/WT_P0/raw_feature_bc_matrix JS6")$`Gene Expression`,
+                       Read10X("./data/seq/WT_P0/filtered_feature_bc_matrix JS6")$`Gene Expression`,
+                       "./data/seq/WT_P0/P0_2_soupx_counts/") %>%
+  CreateSeuratObject(counts = ., project = "WT_P0_2") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+WT_P3 %<-% {runSoupX(Read10X("./data/seq/WT_P3/P3 with rerun hashtags/raw_feature_bc_matrix")$`Gene Expression`,
+                     Read10X("./data/seq/WT_P3/P3 with rerun hashtags/filtered_feature_bc_matrix")$`Gene Expression`,
+                     "./data/seq/WT_P3/P3_soupx_counts/") %>%
+  CreateSeuratObject(counts = ., project = "WT_P3") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+WT_P5_1 %<-% {runSoupX(Read10X("./data/seq/WT_P5/PN5 data/Revised run data/sample1_raw_feature_bc_matrix")$`Gene Expression`,
+                       Read10X("./data/seq/WT_P5/PN5 data/Revised run data/sample1_filtered_feature_bc_matrix")$`Gene Expression`,
+                       "./data/seq/WT_P5/P5_1_soupx_counts/") %>%
+  CreateSeuratObject(counts = ., project = "WT_P5_1") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+WT_P5_2 %<-% {runSoupX(Read10X("./data/seq/WT_P5/PN5 data/Revised run data/Sample3_raw_feature_bc_matrix")$`Gene Expression`,
+                       Read10X("./data/seq/WT_P5/PN5 data/Revised run data/Sample3_filtered_feature_bc_matrix")$`Gene Expression`,
+                       "./data/seq/WT_P5/P5_2_soupx_counts/") %>%
+  CreateSeuratObject(counts = ., project = "WT_P5_2") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+WT_P7_1 %<-% {runSoupX(Read10X("./data/seq/WT_P7/raw_feature_bc_matrix P7")$`Gene Expression`,
+                       Read10X("./data/seq/WT_P7/filtered_feature_bc_matrix P7")$`Gene Expression`,
+                       "./data/seq/WT_P7/P7_1_soupx_counts/") %>%
+  CreateSeuratObject(counts = ., project = "WT_P7_1") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+WT_P7_2 %<-% {runSoupX(Read10X("./data/seq/WT_P7/raw_feature_bc_matrix P7-3 JS13")$`Gene Expression`,
+                       Read10X("./data/seq/WT_P7/filtered_feature_bc_matrix P7-3 JS13")$`Gene Expression`,
+                       "./data/seq/WT_P7/P7_2_soupx_counts/") %>%
+  CreateSeuratObject(counts = ., project = "WT_P7_2") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+WT_P7_3 %<-% {runSoupX(Read10X("./data/seq/WT_P7/raw_feature_bc_matrix P7 enriched")$`Gene Expression`,
+                       Read10X("./data/seq/WT_P7/filtered_feature_bc_matrix P7 enriched")$`Gene Expression`,
+                       "./data/seq/WT_P7/P7_3_soupx_counts/") %>%
+  CreateSeuratObject(counts = ., project = "WT_P7_3") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+WT_P14_1 %<-% {runSoupX(Read10X("./data/seq/WT_P14/raw_feature_bc_matrix P14")$`Gene Expression`,
+                        Read10X("./data/seq/WT_P14/filtered_feature_bc_matrix P14")$`Gene Expression`,
+                        "./data/seq/WT_P14/P14_1_soupx_counts/") %>%
+  CreateSeuratObject(counts = ., project = "WT_P14_1") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+WT_P14_2 %<-% {runSoupX(Read10X("./data/seq/WT_P14/raw_feature_bc_matrix JS10 P14-2")$`Gene Expression`,
+                        Read10X("./data/seq/WT_P14/filtered_feature_bc_matrix JS10 P14-2")$`Gene Expression`,
+                        "./data/seq/WT_P14/P14_2_soupx_counts/") %>%
+  CreateSeuratObject(counts = ., project = "WT_P14_2") %>%
+  PercentageFeatureSet(., pattern = "^mt-", col.name = "percent.mt") %>%
+  subset(., subset = percent.mt < pct_mt_high & percent.mt > pct_mt_low & nFeature_RNA > min_nfeature)}
+
+```
+
+```{r create-data-list}
+# Limit memory usage by running SoupX on load, reduces number of matricies in RAM
+# The SoupX function also drops Gm42418
+expression_objs <- list(
+        WT_E12 = WT_E12,
+        WT_E15 = WT_E15,
+        WT_E16 = WT_E16,
+        WT_E18 = WT_E18,
+        WT_P0_1 = WT_P0_1,
+        WT_P0_2 = WT_P0_2,
+        WT_P3 = WT_P3,
+        WT_P5_1 = WT_P5_1,
+        WT_P5_2 = WT_P5_2,
+        WT_P7_1 = WT_P7_1,
+        WT_P7_2 = WT_P7_2,
+        WT_P7_3 = WT_P7_3,
+        WT_P14_1 = WT_P14_1,
+        WT_P14_2 = WT_P14_2
+)
+```
+
+
+
+# Assign sex based on hashing antibodies
+## Read in HTO information
+
+```{r hashtag-futures}
+# Create future objects for antibody capture
+# Drop E12, all are pooled
+#WT_E12_hashtag %<-% Read10X("./data/seq/cellranger_matrix/E12/filtered_feature_bc_matrix E12")$`Antibody Capture`,
+WT_E15_hashtag %<-% {Read10X("./data/seq/WT_E15/filtered_feature_bc_matrix JS12 E15-2")$`Antibody Capture`}
+WT_E16_hashtag %<-% {Read10X("./data/seq/WT_E16_5583_JS5/filtered_feature_bc_matrix")$`Antibody Capture`}
+WT_E18_hashtag %<-% {Read10X("./data/seq/WT_E18/filtered_feature_bc_matrix E18")$`Antibody Capture`}
+WT_P0_1_hashtag %<-% {Read10X("./data/seq/WT_P0/remap_P0_JS_1/filtered_feature_bc_matrix")$`Antibody Capture`}
+WT_P0_2_hashtag %<-% {Read10X("./data/seq/WT_P0/filtered_feature_bc_matrix JS6")$`Antibody Capture`}
+WT_P3_hashtag %<-% {Read10X("./data/seq/WT_P3/P3 with rerun hashtags/filtered_feature_bc_matrix")$`Antibody Capture`}
+WT_P5_1_hashtag %<-% {Read10X("./data/seq/WT_P5/PN5 data/Revised run data/sample1_filtered_feature_bc_matrix")$`Antibody Capture`}
+WT_P5_2_hashtag %<-% {Read10X("./data/seq/WT_P5/PN5 data/Revised run data/Sample3_filtered_feature_bc_matrix")$`Antibody Capture`}
+WT_P7_1_hashtag %<-% {Read10X("./data/seq/WT_P7/filtered_feature_bc_matrix P7")$`Antibody Capture`}
+WT_P7_2_hashtag %<-% {Read10X("./data/seq/WT_P7/filtered_feature_bc_matrix P7-3 JS13")$`Antibody Capture`}
+WT_P7_3_hashtag %<-% {Read10X("./data/seq/WT_P7/filtered_feature_bc_matrix P7 enriched")$`Antibody Capture`}
+WT_P14_1_hashtag %<-% {Read10X("./data/seq/WT_P14/filtered_feature_bc_matrix P14")$`Antibody Capture`}
+WT_P14_2_hashtag %<-% {Read10X("./data/seq/WT_P14/filtered_feature_bc_matrix JS10 P14-2")$`Antibody Capture`}
+
+
+```
+
+```{r hashtag-list}
+# Only load in AB capture data to conseve memory
+# Using lists for easier looping
+antibody_dat <- list(
+        # Drop E12, all are pooled
+        WT_E15 = WT_E15_hashtag,
+        WT_E16 = WT_E16_hashtag,
+        WT_E18 = WT_E18_hashtag,
+        WT_P0_1 = WT_P0_1_hashtag,
+        WT_P0_2 = WT_P0_2_hashtag,
+        WT_P3 = WT_P3_hashtag,
+        WT_P5_1 = WT_P5_1_hashtag,
+        WT_P5_2 = WT_P5_2_hashtag,
+        WT_P7_1 = WT_P7_1_hashtag,
+        WT_P7_2 = WT_P7_2_hashtag,
+        WT_P7_3 = WT_P7_3_hashtag,
+        WT_P14_1 = WT_P14_1_hashtag,
+        WT_P14_2 = WT_P14_2_hashtag
+)
+```
+
+## Set information about antibody identity
+```{r antibody-mappings}
+mouse_ab_names <- c("anti-mouse-1", "anti-mouse-2", "anti-mouse-3", "anti-mouse-4", "anti-mouse-5")
+ab_list <- list(
+        WT_E15 = mouse_ab_names[c(3,1)],
+        WT_E16 = mouse_ab_names[1:4],
+        WT_E18 = mouse_ab_names[1:4],
+        WT_P0_1 = mouse_ab_names[1:4],
+        WT_P0_2 = mouse_ab_names[1:4],
+        WT_P3 = mouse_ab_names[1:4],
+        WT_P5_1 = mouse_ab_names[2:5],
+        WT_P5_2 = mouse_ab_names[2:5],
+        WT_P7_1 = mouse_ab_names[c(1,2,4,5)],
+        WT_P7_2 = mouse_ab_names[1:4],
+        WT_P7_3 = mouse_ab_names[1:4],
+        WT_P14_1 = mouse_ab_names[2:5],
+        WT_P14_2 = mouse_ab_names[2:3]
+)
+
+```
+
+
+## Determine hashing antibodies by cell
+```{r process-hashing}
+hashtag_objects <- lapply(names(antibody_dat), function(name){
+  print(name)
+  # Grab data from only the antibodies used
+  # Subset the count object by 1: The antibodies added to the rxn, and 2: Cells that passed basic QC
+  obj_hashtag <- CreateSeuratObject(counts = antibody_dat[[name]][ab_list[[name]],
+                                                                  colnames(expression_objs[[name]])],
+                                    assay = "HTO")
+  # Normalize HTO data, here we use centered log-ratio (CLR) transformation
+  obj_hashtag <- NormalizeData(obj_hashtag, assay = "HTO", normalization.method = "CLR")
+  obj_hashtag <- HTODemux(obj_hashtag, assay = "HTO", positive.quantile = 0.99)
+  print(HTOHeatmap(obj_hashtag, assay = "HTO", ncells = 5000) + ggtitle(name))
+  ggsave(paste0("./data/demux/hto/", name, ".png"), HTOHeatmap(obj_hashtag, assay = "HTO", ncells = 5000))
+  # Next, assign the sex based on what antibody was assigned
+  obj_hashtag$antibody <- "Unknown"
+
+  for (called_ab_name in unique(ab_list[[name]])){
+    obj_hashtag$antibody[obj_hashtag$HTO_classification == called_ab_name] <- called_ab_name
+  }
+  # Make this a factor
+  obj_hashtag$antibody <- as.factor(obj_hashtag$antibody)
+
+
+  return(obj_hashtag)
+})
+
+names(hashtag_objects) <- names(antibody_dat)
+```
+
+
+## Transfer hashing antibody info to counts seurat objects
+```{r transfer-hto-data}
+for (obj_name in names(ab_list)){
+
+  for (meta_col in colnames(hashtag_objects[[obj_name]]@meta.data)){
+    if (obj_name == "WT_E12") {
+      dat <- hashtag_objects[[sample]]@meta.data[[meta_col]]
+      names(dat) <- rownames(hashtag_objects[[sample]])
+      expression_objs[[obj_name]]@meta.data[[meta_col]] <- "Unknown"
+    }
+
+    dat <- hashtag_objects[[obj_name]]@meta.data[[meta_col]]
+    names(dat) <- colnames(hashtag_objects[[obj_name]])
+    expression_objs[[obj_name]]@meta.data[[paste0("HTO_", meta_col)]] <- dat[colnames(hashtag_objects[[obj_name]])]
+  }
+}
+```
+
+
+```{r save-listobj}
+saveRDS(expression_objs, "./data/20210802_all_devo_data_list.rds", compress = "bzip2")
+```

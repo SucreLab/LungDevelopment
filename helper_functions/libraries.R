@@ -19,6 +19,8 @@ library(grid)
 library(boot)
 library(openxlsx)
 library(magick)
+library(SoupX)
+library(stringr)
 
 library(knitr) # for kable
 options(knitr.table.format = "html")

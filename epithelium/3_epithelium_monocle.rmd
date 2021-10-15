@@ -1,0 +1,96 @@
+---
+title: "scSEQ analysis of the developing epithelium"
+author: Nick Negretti
+date: 08/09/21
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung epithelium
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE, load-libraries}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+#source("./helper_functions/libraries.R")
+library(monocle3)
+library(tidyverse)
+library(knitr) # for kable
+options(knitr.table.format = "html")
+library(kableExtra) # for pretty tables kable_styling()
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+#N_WORKERS <- 12
+#plan("multiprocess", workers = N_WORKERS)
+epi_cds <- readRDS("./data/20210802_celldataset_epi_relabel.rds")
+epi_cds
+
+
+
+```
+## Load data from merge and clean pipeline
+```{r}
+epi_cds <- readRDS("./data/20210802_celldataset_epi_relabel.rds")
+epi_cds
+
+
+
+at1_genes <- c("Aqp5",
+                    "Sftpc",
+                    "Hopx",
+                    "Ager",
+                    "Col4a3")
+cds_subset <- epi_cds[rownames(epi_cds) %in% at1_genes,]
+cds_subset@colData$timepoint_numeric <- as.numeric(cds_subset@colData$timepoint_numeric)
+
+
+gene_fits_test <- fit_models(cds_subset, model_formula_str = "~timepoint_numeric", cores = 20)
+fit_coefs_test <- coefficient_table(gene_fits_test)
+filt_fits_test <- fit_coefs_test %>% filter(term == "timepoint_numeric") %>% select(gene_id, term, q_value, estimate)
+
+
+##
+gene_fits_all <- fit_models(epi_cds, model_formula_str = "~timepoint_numeric", cores = 20)
+fit_coefs_all <- coefficient_table(gene_fits_all)
+filt_fits_all <- fit_coefs_all %>% filter(term == "timepoint_numeric") %>% select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_all, "./data/20210802_epi_filt_fits_all.rds")
+gc()
+
+
+##
+gene_fits_at1 <- fit_models(epi_cds[,epi_cds@colData$celltype == "AT1"], model_formula_str = "~timepoint_numeric", cores = 20)
+fit_coefs_at1 <- coefficient_table(gene_fits_at1)
+filt_fits_at1 <- fit_coefs_at1 %>% filter(term == "timepoint_numeric") %>% select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_at1, "./data/20210802_epi_filt_fits_at1.rds")
+gc()
+
+##
+gene_fits_at2 <- fit_models(epi_cds[,epi_cds@colData$celltype == "AT2"], model_formula_str = "~timepoint_numeric", cores = 20)
+fit_coefs_at2 <- coefficient_table(gene_fits_at2)
+filt_fits_at2 <- fit_coefs_at2 %>% filter(term == "timepoint_numeric") %>% select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_at2, "./data/20210802_epi_filt_fits_at2.rds")
+gc()
+
+##
+gene_fits_ciliated <- fit_models(epi_cds[,epi_cds@colData$celltype == "Ciliated"], model_formula_str = "~timepoint_numeric", cores = 20)
+fit_coefs_ciliated <- coefficient_table(gene_fits_ciliated)
+filt_fits_ciliated <- fit_coefs_ciliated %>% filter(term == "timepoint_numeric") %>% select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_ciliated, "./data/20210802_epi_filt_fits_ciliated.rds")
+gc()
+
+
+gene_fits_secretory <- fit_models(epi_cds[,epi_cds@colData$celltype == "Secretory"], model_formula_str = "~timepoint_numeric", cores = 20)
+fit_coefs_secretory <- coefficient_table(gene_fits_secretory)
+filt_fits_secretory <- fit_coefs_secretory %>% filter(term == "timepoint_numeric") %>% select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_secretory, "./data/20210802_epi_filt_fits_secretory.rds")
+gc()
+
+
+```

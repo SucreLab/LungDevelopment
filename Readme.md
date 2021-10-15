@@ -14,13 +14,14 @@ bioRxiv 2021.01.21.427641; doi: https://doi.org/10.1101/2021.01.21.427641
 R version 4.0.2 was used to run all of this code. The environment is stored 
 in an renv. Details can be found in the [renv.lock](./renv.lock) file.
 
-#### [Epithelium](./epithelium/all_epi.md)
+#### [Epithelium](./epithelium/)
 
 
-#### [Endothelium](./endothelium/all_endo.md)
+#### [Endothelium](./endothelium/)
 
 
-#### [Mesenchyme](./mesenchyme/all_meso.md)
+#### [Mesenchyme](./mesenchyme/)
 
-#### [Combined analysis](./merge_and_clean/all_cells.md)
+#### [Combined analysis](./all_cells/)
+
 

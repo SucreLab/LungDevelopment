@@ -1,0 +1,585 @@
+---
+title: "scSEQ analysis of the developing epithelium"
+author: Nick Negretti
+date: 08/09/21
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung epithelium
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE, load-libraries}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+```
+## Load data from merge and clean pipeline
+```{r}
+epi_relabel <- readRDS("./data/20210802_epi_devo_data_sct_labeled.rds")
+epi_relabel
+
+levels(epi_relabel$celltype)[levels(epi_relabel$celltype) == "Cilliated"] <- "Ciliated"
+
+epi_relabel$celltype <- ordered(as.factor(epi_relabel$celltype),
+                                c("Early Epithelium",
+                                  "Transitional",
+                                  "AT1",
+                                  "AT2",
+                                  "Mki67+ AT2",
+                                  "Ciliated",
+                                  "Secretory",
+                                  "Neuroendocrine"
+                                ))
+
+```
+
+
+
+```{r}
+p_cluster <- DimPlot(epi_relabel, group.by = "celltype", pt.size = 0.05) + umap_theme() +
+  scale_colour_manual(name = "Cluster", values = color_category_20) +
+  theme(aspect.ratio=1,
+        panel.background = element_rect(fill = "transparent", colour = "black"),
+        plot.background = element_rect(color = "transparent", fill = "transparent"),
+        plot.title = element_blank())
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=p_cluster, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/epi/epi_labeled_umap.png",
+       egg::set_panel_size(p=p_cluster, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+```
+
+
+## Set celltype to markers
+```{r}
+Idents(epi_relabel) <- epi_relabel$celltype
+```
+
+## Re-confirm the markers in the relabeled clusters
+```{r}
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+filename <- "./data/20210802_epi_devo_data_sct_labeled_markers.rds"
+if (!file.exists(filename)) {
+  epi_relabeled_markers <- parallelFindAllMarkers(epi_relabel)
+  names(epi_relabeled_markers) <- levels(Idents(epi_relabel))
+  saveRDS(epi_relabeled_markers, filename)
+} else {
+  epi_relabeled_markers <- readRDS(filename)
+}
+
+
+wb_markers_names <- levels(Idents(epi_relabel))
+wb_markers <- createWorkbook()
+for (idx in seq_along(wb_markers_names)){
+  addWorksheet(wb_markers, wb_markers_names[idx])
+  writeData(wb_markers, wb_markers_names[idx], epi_relabeled_markers[[idx]], rowNames = TRUE)
+}
+saveWorkbook(wb_markers, file = "./data/20210802_epi_devo_data_sct_labeled_markers.xlsx", overwrite = TRUE)
+```
+
+
+```{r}
+marker_genes <- c("Mdk", "Mki67", # Early Epithelium
+                  "Cdkn1a", "Krt8", # Transitional?
+                  "Hopx", "Aqp5", #AT1
+                  "Sftpa1", "Sftpc", # AT2
+                  "Foxj1", "Dynlrb2", # Ciliated
+                  "Scgb1a1", "Scgb3a2", # Secretory
+                  "Ascl1", "Scg5" #Neuroendocrine
+)
+
+epi_marker_plot <- DotPlot(epi_relabel, features = marker_genes, group.by = "celltype", dot.scale = 8)
+
+epi_marker_plot_w_theme <- epi_marker_plot +
+  scale_color_distiller(palette = "Blues", direction = 1, name = "Expression") +
+  scale_y_discrete(limits=rev) +
+  theme(axis.title = element_blank(),
+        axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 12),
+        aspect.ratio = 1,
+        panel.background = element_rect(fill = "transparent", colour = "black"),
+        plot.background = element_rect(color = "transparent", fill = "transparent"),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 12)
+  )
+
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=epi_marker_plot_w_theme, width=unit(9.5, "cm"), height=unit(7, "cm")))
+ggsave("./data/figures/epi/dotplot_markers.pdf",
+       egg::set_panel_size(p=epi_marker_plot_w_theme, width=unit(9.5, "cm"), height=unit(7, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(7, "cm"), height=unit(4, "cm"))
+
+```
+
+
+```{r}
+# Cell-type markers identified in: "Alveolar regeneration through a Krt8+ transitional stem cell state that persists in human lung fibrosis" https://www.nature.com/articles/s41467-020-17358-3
+
+strunz_at2 <- c("Sftpc", "Sftpa1", "Slc34a2", "Sftpb", "Cxcl15", "Hc", "Chi3l1", "Lyz1", "Scd1", "Lamp3", "Sfta2", "S100g", "Sftpd", "Napsa", "Lpcat1", "Lgi3", "Fasn", "Dram1", "Cldn18", "Atp1b1", "Abca3", "Egfl6", "Alcam", "Cpm", "Ppp1r14c", "Selenbp1", "Ager", "Ptprf", "Bex4", "Cbr2", "Mid1ip1", "Muc1", "Atp8a1", "Zdhhc3", "Errfi1", "Rnase4", "Rgcc", "Acoxl", "Wfdc2", "Bex2", "Etv5", "Ank3", "Npc2", "Neat1", "Chia", "Wbp5", "Elovl1", "Irx1", "Pla2g1b", "Prnp", "Il33", "Ccdc141", "Apoc1", "Abcd3", "Socs2", "Car8", "Mettl7a1", "Scd2", "Pi4k2b", "Atp11a", "Nkx2-1", "Atp6v1c2", "Ces1d", "Kcnj15", "Aox3", "Acsl4", "Rbpjl", "Cldn3", "Enpep", "Slc12a2", "Tspan11", "Lrp2", "Cat", "Tgoln1", "Cd36", "Sdc1", "Lpin2", "Itih4", "Cyp2b10", "Tmem243", "Ppp1r9a", "Chchd10", "Phldb2", "Prr15l", "Lrrk2", "Snx25", "Mlc1", "Cox6a2", "Prrg3", "Gpr116", "Acot7", "Myh14", "Lcn2", "Npw", "Snhg11", "mt-Nd2", "C6", "Aqp5", "Oat", "Cmtm8", "Exosc7", "Cadm1", "Fgfr2", "Adk", "Acly", "Ahcyl2", "Gas6", "Sdc4", "Arhgef38", "Gclc", "Gde1", "Slc31a1", "Smim6", "Pmvk", "Atp7b", "Malat1", "Gstt1", "Ctsh", "Nedd4l", "Ang", "Cdh1", "Pfkfb2", "Acot1", "Slc15a2", "Abhd2", "Secisbp2l", "Lmo7", "Myo5c", "Nkd1", "Fdps", "Ctnnb1", "Acsl5", "Prdx6", "Tmem50b", "Grb14", "Gprc5a", "Scnn1a", "Herpud1", "H2afj", "Scp2", "Pon3", "Npnt", "mt-Nd4", "Spint2", "Chka", "Iah1", "Mbip", "Lyz2", "Car2", "Hp", "Cystm1", "Ptplad1", "Col6a1", "Hdc", "Clic3", "Adam19", "Smim1", "Nupr1", "Cited2", "Tinagl1", "Cebpa", "Nucb2", "Epcam", "Tspan2", "Idh2", "Slc39a8", "Ngfrap1", "Insig1", "Pcnt", "Phlda1", "Oaz2", "Icam1", "Bcam", "Uhrf1bp1l", "Mgst1", "Tnfaip1", "Mtch1", "Tmem30a", "Emp2", "Ptgs1", "Pik3ca", "Lrg1", "Carkd", "Eif4h", "Cd200", "Nrp1", "Brd7", "Serpinb6b", "Tceal8", "Tns1", "Pdlim2", "Arf6", "Bsg", "Rai14", "Atp1a1", "Avpi1", "Hmgcs1", "Dcxr", "Map1lc3a", "Foxp1", "Taok3", "Sult1a1", "Hsd17b10", "Aldh2", "Npc1", "Tmbim6", "Entpd1", "Epas1", "Eci1", "Vamp8", "Atp2a2", "Irf2bp2", "Slc43a2", "Acaa2", "Ccz1", "Nedd4", "Ldhb", "Fkbp4", "Por", "mt-Nd5", "Arl6ip1", "mt-Nd1", "Crip2", "Pura", "Soat1", "Klf9", "Suclg1", "H1f0", "Dstn", "Cnn2", "Glul", "Hmgn1", "Tsc22d1", "Ppic", "Ralbp1", "mt-Cytb", "Apoa1bp", "Actn4", "Sod1", "Vimp", "Tmem59", "Zbtb20", "Anxa6", "Apc", "Rpl21", "Usp8", "Cers2", "Ddx17", "mt-Nd6", "Hsd17b4", "Rnf181", "Stard3nl", "Azin1", "Wls", "Anapc13", "Tecr", "Vapa", "Polr2e", "Rdx")
+
+strunz_activated_at2 <- c("Lcn2", "Sftpd", "Il33", "Sftpa1", "Chi3l1", "Scd1", "Cxcl15", "Lyz1", "Ager", "Elovl1", "Sftpc", "Lamp3", "Sftpb", "Npc2", "Napsa", "Lrg1", "Cystm1", "Rgcc", "H2afj", "Cdkn1a", "Wbp5", "Dcxr", "Prr15l", "Gclc", "Ctsh", "Slc34a2", "Atp1b1", "Cldn3", "Fasn", "Wfdc2", "Sfta2", "Pmvk", "Acot7", "Acsl4", "Tgoln1", "Lpcat1", "Ccnd1", "Aqp5", "Prnp", "Dram1", "Ngfrap1", "S100g", "Prdx6", "Krt18", "Muc1", "Ccng1", "Tacstd2", "Gja1", "Cox6b2", "Lrp2", "Sdc1", "Emp2", "Avpi1", "2200002D01Rik", "Selenbp1", "Errfi1", "Atp11a", "Lrrk2", "Kcnj15", "Chchd10", "Clip4", "Egfl6", "Pi4k2b", "Icam1", "Phldb2", "Ptgs1", "Cldn18", "Col6a1", "Apoc1", "Dmkn", "Snx7", "Ceacam1", "Abcd3", "Ptprf", "Phlda1", "Abca3", "Krt8", "Vamp8", "Cxcl17", "Crb3", "Krt7", "Prrg3", "Cd36", "Anxa3", "Fdps", "Tmem30a", "Clu", "Rbpjl", "Scd2", "Crip2", "Car2", "Clic3", "Cryab", "Smim1", "Scnn1a", "Mid1ip1", "Me1", "Hdc", "Neat1", "Gprc5a", "Slc12a2", "Nfe2l2", "H1f0", "Lpin2", "Rps27l", "Hmgn1", "Serpinb6b", "Npnt", "Tmem243", "Ly6c1", "Siva1", "Alcam", "Map1lc3a", "Tubb4b", "Cdh1", "Itm2a", "Socs2", "Tspan11", "Slpi", "Vmp1", "Mgst1", "Malat1", "Gsta4", "Cd81", "Irx1", "Mbip", "Fdx1", "Retnla", "Tpm1", "Sdc4", "Epcam", "Ptgr1", "Hc", "Cnn2", "Cd200", "Pdlim2", "Tmem176a", "1110008F13Rik", "Atp6v1g1", "Eif4h", "Tsc22d1", "Dstn", "Hp", "Tmem37", "Emc6", "Lmo7", "Fermt2", "Gas6", "Serpine2", "Coa3", "Arf6", "Acsl5", "Ly6e", "Ifi27", "Bsg", "Ccdc141", "Mpc2", "Ndufa4", "Uqcr11", "Ifi27l2a", "Commd3", "Lgi3", "Zdhhc3", "Scp2", "Mtch2", "Polr2e", "Spint2", "Col4a1", "Tmem176b", "Azin1", "Ppp1r14c", "Gm9790", "Pfdn1", "Iah1", "Exosc7", "Oaz2", "Ccdc25", "Cox7a2", "Rnf181", "H2-K1", "Oat", "Ndufab1", "Actn4", "Atp8a1", "Cers2", "Etfb", "Pon3", "Tmbim6", "Paics", "Mrpl14", "Prdx4", "Ndufa7", "Nucb2", "Ctnna1", "Ndufa13", "Ppic", "Fkbp4", "Ssr2", "Secisbp2l", "Hibadh", "Usp8", "Wls", "Cebpg", "Gpr116", "Ndufa11", "Ndufb11", "S100a11", "Ces1d", "Mlec", "Btg2", "Anapc13", "Cyb5", "Atp5o", "Ndufa12", "Ndufa5", "Apoa1bp", "Xdh", "Gadd45g", "Nedd4", "Lgals9", "Atp5f1", "Tpm4", "Ndufc1", "Gde1", "Epas1", "Rnase4", "Cox6a1", "mt-Cytb", "Sdhc", "Hsd17b10", "Nrp1", "Atp2a2", "Carkd", "Atxn10", "Glrx", "Psme1", "Taok3", "Atp5e", "Ndufb2", "Ift20", "Vapa", "Atp5k", "Mdh2", "Por", "Uqcrq", "Cox20", "Brd7")
+
+strunz_ADI <- c("Clu", "Krt18", "Sprr1a", "Krt7", "2200002D01Rik", "Cryab", "Krt8", "Ager", "Tnfrsf12a", "Emp2", "Cdkn1a", "Cldn18", "Lmo7", "Cystm1", "Akap5", "Anxa1", "F3", "Tpm1", "Gclc", "Sfn", "Areg", "Ndnf", "Nupr1", "Hbegf", "Cldn4", "Gprc5a", "S100a6", "Icam1", "Krt19", "Anxa3", "Cyr61", "Ctsh", "Cldn3", "S100a14", "Dstn", "Epcam", "S100a11", "Atp1b1", "Clic3", "Tspan8", "Serpinb6b", "Pls3", "Phlda1", "Prdx6", "Tacstd2", "Akr1b8", "Serpinb9", "Rgcc", "Ifrd1", "Ccng1", "Lamc2", "Clic5", "Vmp1", "Scnn1a", "Mal", "Fdx1", "Phldb2", "Aqp5", "Tnip3", "Crip2", "Sqstm1", "Itgb6", "Sftpd", "Ccnd1", "Cdh1", "Cgn", "Npc2", "Myl12a", "Sparc", "Cldn7", "Ctnna1", "Tinagl1", "Wbp5", "Prnp", "Rps27l", "Sdc4", "Lpin2", "Cdkn2b", "Ngfrap1", "Sdc1", "Hspb1", "Ccdc68", "Cd81", "Eps8l2", "Tjp2", "Kcnk1", "Tmem37", "Igfbp7", "Ppp1r15a", "Gadd45b", "Hspb8", "Vamp8", "Avpi1", "Sh2d4a", "Cxadr", "Ppl", "Crb3", "Ly6c1", "Mpp5", "Myo1b", "Prr15l", "Hsp90aa1", "Cox6b2", "Ppic", "Wls", "Cadm1", "Vegfa", "Calm2", "Perp", "Cltb", "Pttg1ip", "Spint2", "Fads3", "Hmgn1", "Slc39a8", "Cald1", "Hopx", "Actn1", "F11r", "Rnf181", "Otud7b", "H2afj", "Dcxr", "Commd3", "Pdlim2", "Timp3", "Pfdn1", "Txnl1", "Slc12a2", "Wfdc2", "H1f0", "Cfl2", "Ddx47", "Rai14", "Cttn", "Tmem176b", "Atxn10", "Tmbim4", "Selenbp1", "Psmd8", "Mal2", "Tpm4", "Neat1", "Col4a2", "Tspan2", "Acot9", "Ceacam1", "Hist1h2bc", "Tmem176a", "Anxa5", "Ndufa4", "Scd2", "Actn4", "Malat1", "Car2", "Tubb4b", "Mir22hg", "Ahnak", "Cnn2", "Snhg3", "Ppa1", "Il18r1", "Errfi1", "Carkd", "Timm17a", "Fermt2", "Tuba1c", "Bsg", "Trp53inp1", "Lrrfip2", "Socs2", "Ndufb6", "S100g", "Cd151", "Fnbp1l", "Btg2", "Esd", "Myh14", "Nfe2l2", "Msn", "Anxa2", "Hspa9", "Psmd12", "S100a16", "Vps36", "Psmd7", "D17H6S56E-5", "Chchd10", "Tsc22d1", "Las1l", "Vapa", "Itgb1", "Col4a1", "Psmd4", "Chmp2b", "Fyttd1", "Arrdc1", "Srpr", "Txnrd1", "Gsta4", "Alcam", "Tpd52l2", "Zranb2", "BC031181", "Ctnnd1", "Kif5b", "Serpinb6a", "Lgals3", "Cxcl16", "Sar1b", "Acadl", "Gnl2", "Stub1", "Hes1", "Wdfy1", "1500012F01Rik", "Emc4", "Creb3", "Ddx1", "Psmd11", "Gas5", "Usp16", "Romo1", "Ubb", "Sars", "Atxn7l3b", "Lcn2", "Muc1", "Ubxn4", "Eny2", "Xist", "2810474O19Rik", "Osbpl9", "Ptgr1", "Psmc3", "Ghitm", "Skp1a", "Ptpn11", "Eif3c", "Aff4", "Emc7", "Eif1", "Drap1", "Mdm2", "Ppp2r2a", "Tgoln1", "Abhd2", "Calm1", "Psmb1", "Golgb1", "Siva1", "Cox7a2", "Sbds", "Ndufb9", "Bax", "Gpx4", "Ezr", "Sptlc2", "Mif", "Hp1bp3", "S100a10", "Rnh1", "Cct6a", "Pdcd6", "Eif4g1", "Myl12b", "9530068E07Rik", "Adss", "Snx7", "Psmb3", "Cd2ap", "Ccdc104", "Dnajc5", "Psmc6", "Sod1", "Ccdc47", "Hsp90ab1", "Psma7", "Ndufa5", "Morf4l2", "Tmem30a", "Tbrg1", "Ube2b", "4930523C07Rik", "Sf3b5", "Rin2", "Cers2", "Mrpl32", "Myl6", "Rps19", "Psmb4", "Ndufa12", "Lmna", "Cab39", "Tmbim6", "Sdf2", "Qk", "Dynlt3", "Atf4", "Ccdc25", "Ywhae", "Plp2", "Nars", "Ndufc2", "Sptbn1", "Gm4950", "Tceb2", "Psma2", "Nedd4", "Slc25a3", "Cops2", "Phf3", "Eif6", "Capn2", "Paics", "Tsg101", "Cast", "Eif5", "Hspa5", "Uqcr10", "Serpine2", "Cttnbp2nl", "Tm9sf2", "Ndufa13", "Ssr2", "Jund", "Timm13", "Ifi27", "Mrpl14", "Ypel5", "Uqcrq", "Chmp5", "Sat1", "Sra1", "Mgst3", "Ptprf", "Hdlbp", "Cyb5r3", "Ndufab1", "Mt2", "Napsa", "Nufip2", "Pmvk", "Fubp1", "Dad1", "Por", "Ube2k", "Acer3", "Slc25a4", "Pkm", "Myof", "Slc3a2", "Ier3", "Scd1", "Psmc2", "Rab10", "Arid5b", "Eif1a", "Polr2e", "Hdgf", "Dynlrb1", "Cript", "Eif2s2", "Eif4h", "Psmc1", "Dnaja2", "Rab18", "Chchd2", "Fam173a", "Arf4", "Lrrfip1", "Golm1", "Sin3b", "Tmod3", "Tagln2", "Tmem208", "Atp5b", "Tmem59", "1810037I17Rik", "2410006H16Rik", "Cuta", "Srsf5", "Snx4", "Cav2", "Dctn2", "Atp6v1g1", "Ubxn1", "Dusp1", "Ccdc59", "Acsl4", "Clip1", "Arf1", "Klf6", "Minos1", "Abcd3", "Psmc5", "Xrn2", "Glrx3", "Ndufb2", "Sypl", "Eif4a2", "Cox8a", "Pfdn2", "2002-09-01 00:00:00", "Sec62", "Smarca4", "Bud31", "Tceb1", "Hsbp1", "Atp5d", "Cct7", "Rab6a", "Cct4", "mt-Cytb", "Cox6a1", "Nop10", "B020018G12Rik", "Arcn1", "Ociad1", "Nucb2", "Ebna1bp2", "Gtpbp4", "Ube2d3", "Cwc15", "Eif1ax", "Srsf11", "Eif3g", "Tax1bp1", "St13", "Psmd1", "Mfge8", "Gm10094", "Cul1", "Gm7964", "Zfp106", "Pafah1b1", "Golga4", "Magoh", "Tpp1", "Pdap1", "Rabac1", "Psmb6", "Ralbp1", "Sar1a", "Smim15", "Zfr", "Slirp", "Snrnp27", "Emc6", "Snrnp70", "Snw1", "Ndufa7", "Ubc", "Paip2", "Coa3", "Polr2f", "Anxa7", "Chmp3", "Timm8b", "Tm9sf3", "2610001J05Rik", "Nop58", "Ppig", "Bcap31", "App", "Arpc1a", "Cox7c", "Arpp19", "Adrm1", "Tspo")
+
+
+strunz_at1 <- c("Ager", "Akap5", "Clic5", "Rtkn2", "Vegfa", "Cldn18", "Emp2", "Spock2", "Timp3", "Lmo7", "Col4a3", "Igfbp2", "Hopx", "Krt7", "Hbegf", "Limch1", "Pdpn", "Sdpr", "Gprc5a", "Ndnf", "Scnn1g", "Rgcc", "Pmp22", "Cyr61", "Prdx6", "Cyp4b1", "Cryab", "Sema3e", "Fbln5", "Syn3", "Igfbp7", "Sparc", "Icam1", "Scnn1a", "Clic3", "Scd2", "Myo1b", "Col4a2", "Cav1", "Col4a4", "Cyp2b10", "Cadm1", "Col4a5", "Pxdc1", "Tmem37", "Slc39a8", "Mal2", "Flrt3", "Tspan8", "Gramd2", "Aqp5", "Ctgf", "Sec14l3", "F2r", "Tjp1", "Crip2", "Mettl7a1", "Tead1", "Npnt", "Neat1", "Slc6a14", "Myh14", "Cdkn2b", "Fam189a2", "Pvrl3", "Mthfd1", "Dag1", "Col4a1", "Agrn", "2810474O19Rik", "F3", "Cped1", "Tns1", "Tef", "Dusp7", "Plod2", "Lpin2", "Tmod1", "Sema3a", "Scnn1b", "Cystm1", "Lama3", "Sema3b", "Ndst1", "Lamc2", "Fgf1", "Pdgfa", "Selenbp1", "Mecom", "Fam174b", "Ppp3ca", "Serpinb9", "Rab11fip1", "Nebl", "Alcam", "Fads3", "Ppp1r9a", "Qk", "Akr1c14", "Mpp5", "Malat1", "Pard6b", "4930523C07Rik", "Serpinb6b", "Anxa3", "Thbs3", "Tnfrsf12a", "Scel", "Krt19", "2200002D01Rik", "Magi3", "Tspan2", "Tacstd2", "Serinc2", "Ier3", "Cnn2", "Tmem140", "Liph", "Ptprf", "Hist1h2bc", "Ctnna1", "Abca5", "Amer1", "Rnf214", "Phldb2", "Tmem63b", "Pgrmc1", "Bdnf", "Lox", "Nbl1", "Otud7b", "Capn2", "Ehd2", "Tinagl1", "Rnf181", "Fdx1", "Osbpl6", "Kank2", "Klhl24", "Ece1", "Kif1b", "Popdc3", "Slc44a2", "Epn2", "Cfl2", "Igfbp6", "Cdadc1", "Mbip", "Fktn", "Dcaf6", "Mprip", "Cd59a", "Itga3", "Gadd45b", "Fam134b", "Zfyve21", "Ahnak", "Itgb6", "Fnbp1l", "Fermt2", "Utrn", "Bcl2l1", "Slc39a4", "Vamp8", "Dab2ip", "Wwc1", "Eps8l2", "Nbeal1", "Nt5e", "Tmem33", "Cxadr", "Wipf3", "Rabgef1", "Cgn", "Mrpl14", "Prdx6b", "Vimp", "D230025D16Rik", "Hspg2", "Zfp644", "Arhgef26", "Trim16", "Fstl3", "Drap1", "S100a6", "Aplp2", "Arrdc3", "Tfdp2", "Lamb2", "Wls", "Snx4", "Krt18", "Calm2", "Arhgef2", "Smpd1", "Gadd45g", "Cd81", "Lamb3", "Dapk2", "Nav2", "Pias1", "Il18r1", "Msn", "Sypl", "AA986860", "Emc7", "Rab12", "Ano1", "Nckap5", "Krt8", "Paqr7", "Gm14964", "Hs2st1", "App", "Cav2", "Lrrc16a", "Tspan15", "Slc39a13", "Ltbp3", "Pim3", "Senp2", "Bsg", "Rai14", "Ankrd1", "Abca1", "Btg2", "Sec14l4", "Sod1", "Dennd3", "2310007B03Rik", "Trp53bp2", "Ppic", "P4ha1", "Soga2", "Asah1", "Pdlim2", "Samhd1", "Myl12a", "Papss2", "Wdr45", "Cttnbp2nl", "Dsp", "Carkd", "Dpysl2", "Rbms1", "Snx13", "Prmt2", "Klf9", "Kif5b", "Tardbp", "Tmem30a", "F11r", "Parp3", "Phactr1", "Car2", "Map6", "Nedd4l", "Plb1", "Chpt1", "Plscr2", "P4ha2", "Msln", "Unc50", "Mpp7", "Tppp3", "Dnm3", "S100a14", "Arl1", "Hes1", "Tmem150a", "Pef1", "Sort1", "Esam", "Wwp1", "Pcolce", "Dstn", "Ccdc92", "Anxa5", "Mfge8", "Rusc2", "Clstn1", "Cdh13", "Arhgap44", "Lzts2", "Amotl2", "Atp1b1", "Sptbn1", "Ammecr1l", "Rnase4", "Ctsh", "Slc44a3", "Jrkl", "Ntn4", "Pde7a", "Macf1", "Npr2", "Sdc1", "Snapin", "Ccdc47", "Chrnb1", "Ggact", "Myl12b", "Pxdn", "Rnf167", "Nedd9", "Atxn1", "Crb3", "Hspb1", "Wnk1", "Myo1c", "Prr15l", "Pvrl2", "Ddx47", "Kdelr1", "Exoc7", "Rnf215", "1810037I17Rik", "Cdh1", "Taok3", "Llgl2", "Itgb1", "Kctd10", "Ktn1", "Hipk3", "Cxcl16", "Tmem59", "Ptprm", "Nufip2", "Actn1", "Abhd17c", "Derl2", "Hck", "Arl4c", "Vcl", "Ppp1r15a", "Tmbim6", "Lamc1", "Phyh", "Skp1a", "Smpdl3a", "Wasl", "Anxa1", "Lims2", "Smim1", "Tgfb2", "Gm3150", "Zkscan1", "Tpm1", "Lactb2", "Lrpap1", "Sh3d21", "Vldlr", "Sphk1", "Ajuba", "Fhl1", "Eps8l1", "Ccdc104", "Sh2d4a", "Prrc2b", "Mvb12b", "Tapbp", "Serinc1", "Cd151", "Tjp2", "Zranb2", "Ptrf", "Plekhb1", "Tm9sf2", "Nkx2-1", "Ccdc107", "Slc9a3r2", "Taok2", "Itgav", "Sike1", "Rab25", "Tmod3", "Slc4a2", "Serpinh1", "Pwwp2b", "2610001J05Rik", "Lmtk2", "Paip2", "Clk1", "Rassf7", "Actn4", "Tpm3", "Cyb5", "Matn4", "Tmem123", "Stard3", "Tuba8", "Snx25", "Scmh1", "2700089E24Rik", "Dcaf10", "Myo1d", "Casz1", "Lats1", "Eif4g1", "Sfn", "Atxn7l3b", "Bend7", "Hsp90aa1", "Slc25a4", "Pacsin2", "Zc2hc1a", "Tmem128", "Stx7", "Dnajb9", "Adam10", "Zfp617", "Bmp4", "Pls3", "Cpsf6", "Igsf5", "Serinc5", "Gpm6a", "Mical1", "Clu", "Shroom3", "Lurap1l", "Rtn3", "Rcn2", "Pgap2", "Commd2", "Atxn2", "Mfsd6", "Grpel2", "Ap1m2", "Ssh1", "Pitpnb", "Daam1", "Psmc6", "Tmtc3", "Tmem9b", "Arrb1", "Klf6", "Col12a1", "Tmprss2", "Chmp2b", "Micu1", "Ctr9", "Ept1", "Ctnnd1", "Cpq", "Ghr", "Swap70", "Pfdn4", "Myh9", "Armc10", "Mbp", "Rdx", "Aff4", "Rab8a", "Nisch", "Tiparp", "Dscr3", "Ptp4a2", "Vezf1", "Slc12a2", "Asph", "Actb", "Hnrnph1", "Prss8", "Pxmp4", "Sys1", "Ptgs1", "Adamtsl4", "Clcn5", "mt-Nd5", "Gsn", "Mrps5", "Srrm1", "Map3k7", "Mrps10", "Apc", "D14Abb1e", "Mkln1", "Map1lc3b", "Slain2")
+```
+
+```{r}
+# Cell-type markers from Treutlein et al "Reconstructing lineage hierarchies of the distal lung epithelium using single-cell RNA-seq" https://www.nature.com/articles/nature13173
+
+# Note that specific markers for the BP (bipotent progenitor cells) were not identified
+
+treutlein_at2 <- c("S100g", "Slc34a2", "Lamp3", "Bex2", "Cd36", "Etv5", "Scd1", "Il33", "Fabp5", "Hc", "Sftpa1", "Dlk1", "Cxcl15", "Chsy1", "Lcn2", "Fasn", "Sftpb", "Egfl6", "Lyz1", "Sftpc", "Soat1", "Glrx", "Mlc1", "Retnla", "Mid1ip1", "Chi3l1", "Rab27a", "Fabp12", "Lgi3", "Lyz2")
+
+treutlein_at1 <- c("Clic5", "Pdpn", "Akap5", "Lmo7", "Ahnak", "Sdpr", "Emp2", "Col4a3", "Rtkn2", "Cav1", "Timp3", "Ager", "Msn", "Limch1", "Hopx", "Ptrf", "S100a6", "Dpysl2", "Agrn", "Akap2", "Pmp22", "Tinagl1", "Lgals3", "S100a14", "Malat1", "Vegfa", "Samhd1", "Qk", "Sema3a", "Aqp5")
+
+treutlein_secretory <- c("Cyp2f2", "Scgb3a2", "Chad", "Hp", "Scgb1a1", "Krt15", "Cbr2", "Itm2a", "Upk3a", "Rassf9", "Col23a1", "Lypd2", "Nupr1", "Ppap2b", "Cd200", "Mtus1", "Mia1", "1810010H24Rik", "Dcxr", "Aldh1a7", "Osgin1", "Kdr", "Ccnd1", "Ccnd2", "Gsta3", "Tacstd2", "Nrarp", "Iyd", "Pir")
+
+treutlein_ciliated <- c("Ncs1", "Ccdc67", "1700007G11Rik", "Foxj1", "1110017D15Rik (CBE1)", "Ccdc19", "Stk33", "Spag17", "Ccdc39", "Lrriq1", "4930451C15Rik", "Efhc1", "Lrrc23", "Ttc18", "Mlf1", "6820408C15Rik", "Traf3ip1", "Kif9", "Wdr16", "Lrrc36", "Fank1", "Enkur", "1700009P17Rik", "Tekt4", "Ccdc40", "Hs6st2", "Ccdc113", "BC048355", "Gm6320")
+
+
+```
+
+
+```{r}
+# Cell-type markers from "LPS-treated in vivo" from Kobayashi et al "Persistence of a regeneration-associated, transitional alveolar epithelial cell state in pulmonary fibrosis" https://www.nature.com/articles/s41556-020-0542-8
+
+kobayashi_at2 <- c("Lyz2", "Lrg1", "Cxcl15", "Chil1", "Gm43085", "Sftpb", "Lcn2", "Scd1", "Cbr2", "Rnase4", "Sftpa1", "Lyz1", "Slc34a2", "Hc", "Sftpc", "Apoc1", "Il33", "Fabp5", "Lpcat1", "Bex2", "Fasn", "Lamp3", "Abca3", "S100g", "Cd36", "Tgoln1", "Mid1ip1", "Pla2g1b", "Soat1", "mt-Rnr2", "Cox6a2", "Itih4", "Cat", "Dmkn", "Scgb1c1", "Herpud1", "Napsa", "Slpi", "Acsl4", "mt-Nd2", "Hdc", "Hp", "Atp6v1c2", "Lrrk2", "Acot7", "Car8", "Acoxl", "Cebpa", "Dram1", "Tspan11", "Cpm", "Lrp2", "Errfi1", "Slco4c1", "mt-Nd5", "Bex4", "Acot1", "Selenop", "Snhg11", "Epas1", "Nrn1", "Chia1", "mt-Nd1", "Npc2", "mt-Nd4", "Lgi3", "Cited2", "Sfta2", "Slc31a1", "Nucb2", "Mlc1", "Ppp1r14c", "mt-Co1", "Acly", "Adam19", "Mgst1", "Npw", "Retnla", "Anpep", "Sftpd", "Atp1b1", "Cebpd", "Gstp3", "H2afj", "Smim6", "Dcxr", "Fgfr2", "Cd302", "Dbi", "H6pd", "Scamp1", "Rprm", "Rab27a", "Ces1d", "Snx25", "Col6a1", "Spink5", "Chsy1", "Secisbp2l", "Elovl1", "Etv5", "Tmprss4", "Lbp", "Atp7b", "Ly6c2")
+
+kobayashi_at2_prolif <- c("Tuba1b", "Stmn1", "Tubb5", "Hmgb2", "Birc5", "Cdk1", "Cdc20", "Top2a", "Cks1b", "H2afz", "Cks2", "Tubb4b", "Spc24", "Pclaf", "Tuba1c", "Prc1", "Jpt1", "Lockd", "Cenpa", "Arl6ip1", "Ptma", "Nusap1", "Mki67", "Ran", "Pbk", "Pcna", "Tmpo", "Cdca3", "Ccnb1", "H2afv", "Nucks1", "Cenpf", "Crip1", "Ranbp1", "Rrm2", "H2afx", "Ywhah", "Ccnb2", "Calm2", "Ccna2", "Spc25", "Rad21", "Anp32b", "Smc4", "Dut", "Hsp90aa1", "Tpm4", "Ppia", "Cenpm", "Tyms", "Dek", "Lmnb1", "Nrm", "Smc2", "Racgap1", "Bub3", "Hmgb1", "Cdkn2d", "Ccdc34", "Tk1", "Hnrnpab", "Mad2l1", "Srsf3", "Lsm6", "Banf1", "Hist1h2ae", "Cdkn3", "Cdca8", "Dctpp1", "Ckap2", "Pmf1", "Ezh2", "Hmgn2", "Ptms", "Hmmr", "H2afy", "Prdx4", "Cmc2", "Ect2", "Dynll1", "Ube2c", "Cdkn2c", "Rnaseh2c", "Epcam", "Snrpd1", "Fkbp2", "Incenp", "Rrm1", "Plk1", "Cep55", "Rangap1", "Aurka", "Trim59", "Aurkb", "Dnajc9", "Ube2t", "1810037I17Rik", "Tmsb10", "Hdgf", "Ckap4", "Alyref", "Mis18a", "Rbbp7", "H3f3a", "Lig1", "Zfp367", "Lsm5", "Clic1", "Snrpe", "Kif11", "H1f0", "Tagln2", "Lbr", "G2e3", "Hpf1", "Arpp19", "Gmnn", "Anp32e", "Anln", "Iqgap3", "Mcm6", "Cycs", "Lsm2", "Arhgap11a", "Nsmce1", "Gapdh", "H1fx", "Cdk4", "Ncaph2", "Snrpg", "Hells", "Tipin", "Map4k4", "Cox7a2", "Kpna2", "Tceal9", "Cenpq", "Nek2", "Gas2l3", "C330027C09Rik", "Hat1", "Hmgn1", "Lsm4", "Med28", "Hnrnpf", "Sgo1", "Sri", "Atpif1", "Pfn1", "Cenpe", "Chac2", "Car2", "Srsf2", "Dpy30", "H3f3b", "Mxd3", "Sarnp", "Emp1", "Cbx5", "Txn1", "Ddx39b", "Actb", "Atp5b", "Ckap2l", "Tpx2", "Ndufa5", "Fam111a", "Cct6a", "Hsp90b1", "Mcm7", "Rpa3", "Cdc25b", "Asf1b", "Fbxo5", "Mcm5", "Hmgb3", "Ubl4a", "Mrpl42", "Mcm3", "Kif20b", "Ywhaz", "Tcf19", "Cox5a", "Cisd2", "Naa50", "Dnmt1", "Atp5o", "Psat1", "2210011C24Rik", "Prdx1", "Dtymk", "Cnih4", "Tspan8", "Melk", "Atad2", "Nxt1", "Rfc2", "Plp2", "Uhrf1", "Pih1d1", "Srsf7", "Ssrp1", "Mapre1", "Fen1", "G3bp1", "Ptgr1", "Slfn9", "Lsm8", "Kmt5a", "Krt8", "Hprt", "S100a11", "Hirip3", "Cklf", "Pole3", "Tsen34", "Arhgef39", "Ybx1", "Snrpf", "Hnrnpa3", "Mrpl18", "Mrpl51", "Magoh", "Sgo2a", "Bub1", "Sptssa", "Ifi27l2a", "Hspd1", "Cdc123", "Cuta", "Rpa2", "Hnrnpk", "Yif1b", "Sept7", "Cetn3", "S100a10", "Reep4", "Zmat2", "Ncapg2", "Nudc", "Etfa", "Cmpk1", "Mcm4", "Abracl", "Nap1l1", "Pfdn6", "Siva1", "Gsr", "Stub1", "Ppp1ca", "Morf4l2", "Selenoh", "Atp5g3", "Hnrnph1", "Ncapd2", "Hjurp", "Tpi1", "Topbp1", "Psma7", "Cfl1", "Rheb", "Ndufa11", "Mrpl17", "Dynlt1f", "D030056L22Rik", "Anapc11", "Kif22", "Spcs1", "Nasp", "Psmd14", "Hint1", "Gins2", "Ap2m1", "Tex30", "Mrpl14", "Gtf2a2", "Cenpw", "Snrpb", "Ndufb7", "Knl1", "Npm3", "Cisd1", "Ptges3", "Dstn", "Fus", "Atp5k", "Snu13", "Cldn7", "Trim28", "Ywhaq", "Med30", "Psmb6", "Cntrl", "Smc6", "Anxa1", "Psme2", "Calm3", "Elob", "Pfdn1", "Vdac1", "Smarca5", "Acat1", "Tmed10", "Ndufab1", "Npm1", "U2af1", "Emg1", "1700097N02Rik", "Rdm1", "Ube2d3", "Eny2", "Mrfap1", "Hp1bp3", "Lmna", "Anp32a", "Dbf4", "Haus4", "Aspm", "H2-Q7", "Mrpl33", "Cd9", "Mzt1", "Tra2b", "Rnaseh2b", "Lman1", "H2-Q6", "Hsp90ab1", "Rfc5", "Polr2a", "Srsf1", "Haus8", "Kif20a", "Nhp2", "Kpnb1", "Oxct1", "Jpt2", "Psmb9", "Orc6", "Ndufs6", "Tmem256", "Prrg3", "Uqcrb", "Rac1", "Swi5", "Cdca2", "Vbp1", "Rpsa", "Iqgap1", "Nuf2", "Sypl", "Capzb", "Uchl5", "Rfc4", "Rala", "Anxa4", "Ormdl2", "Bex3", "Minos1", "Tma7", "Naxe", "Myl12b", "Dbi", "Rpa1", "Kcne2", "Ube2e3", "Mapk13", "Bub1b", "Sdhd", "Mrpl28", "Vdac3", "Rbm8a", "Fzr1", "Hnrnpc", "Sf1", "Eif4g2", "Eif4e", "Mgst3", "Hist1h1e", "Itgb3bp", "Pkig", "Cst3", "Paics", "Hspa8", "Pimreg", "Zcrb1", "Ssna1", "Uqcr10", "Serpinb8", "Psma1", "Pa2g4", "Stk17b", "Pgp", "Chia1", "Uba2", "Fam173a", "Impdh2", "Actn4", "Arf6", "Egr1", "Stip1", "Gltp", "Eif4a1", "Lsm3", "Atp5j", "Psip1", "Erh", "Ndufb8", "Kif2c", "Ldha", "Mdh1", "Kif23", "Suz12", "Crip2", "Bcap31", "Bzw1", "Ndufa2", "Dhfr", "Rbbp4", "Larp7", "Cit", "Pkp4", "Sf3b5", "Ssb", "Dnajc15", "Prim1", "Tubg1", "Ubb", "Ptbp3", "Dhrs4", "Hmgn5", "Cox20", "Tbcb", "Nsmce4a", "Psmb8", "Idh3g", "Rps2", "Terf1", "Hnrnpl", "Cd44", "Pbrm1", "Pola1", "Hnrnpa0", "Timm50", "Ska1", "Mcm2", "Anapc5", "Srp9", "Hmgn3", "Cacybp", "Smc1a", "Gnb1", "Set", "Erg28", "Ift80", "Txnl1", "Pin1", "Actr3", "Fundc2", "Id1", "Carhsp1", "Psmb3", "Maz", "Pcbp1", "Dck", "Eloc", "Pkmyt1", "Cdk2ap2", "Eif3a", "Ak6", "Ppic", "Tsn", "Psmb5", "Commd1", "Nubp1", "Wnk1", "Diaph3", "Rap1a", "Rbm25", "Slirp", "Usp1", "Atp5h", "Atp6ap2", "Dnajc8", "Cby1", "Znhit1", "Cse1l", "Oat", "Cbfb", "Luc7l2", "Anxa2", "Fam216a", "Nelfe", "Snx3", "Esco2", "Rtn3", "Tmem54", "Nudt21", "Ppih", "Rps27l", "Clspn", "Slc25a3", "Ube2n", "Uqcc2", "Nudt1", "Timm17b", "Ssbp1", "Actl6a", "Fopnl", "Psmb2", "Matr3", "Pdlim1", "Serbp1", "Celf1", "Tmem107", "Flna", "Babam1", "AC121965.1", "Cox5b", "Pafah1b1", "Hnrnpd", "S100a16", "4930523C07Rik", "Immp1l", "Cenpc1", "Tubb6", "Sephs2", "Gpx4", "Cwc15", "Tbl1xr1", "Krtcap2", "Polr2m", "Larp4b", "Degs1", "Pdap1", "Prrc2a", "Rps24", "Rpp21", "Rex1bd", "Sf3b6", "Ahsa1", "Msl3", "Tppp3", "Higd1a", "Chd4", "Psmc3", "Rfc3", "Ndufa4", "Polr2f", "Ywhae", "Cox8a", "Rpl39", "Sub1", "Ndnf", "Hspb6", "Rpn1", "Taf10", "Tcp1", "Ilf2", "Wbp11", "Rbm39", "Csnk1a1", "Ndufa12", "Ap2s1", "Acadl", "Kif5b", "Rps4l", "Ebp", "Frg1", "Arl6ip6", "Slc25a5", "Nde1", "Etv5", "Arhgdia", "Thoc7", "Cenpl", "Dnaja2", "E2f1", "Atp2b1", "Chchd1", "Calm1", "Parpbp", "Ewsr1", "Hsd17b11", "Eif5", "Rbl1", "Sult2b1", "Ppil1", "Get4", "Ifi27", "Fxn", "2010107E04Rik", "Nono", "Aes", "Psmd4", "Serpinh1", "Htatsf1", "Bcl7c", "Rab18", "Triobp", "Srsf6", "Hspa4l", "Atp5j2", "Ndfip2", "Atp5e", "Akirin2", "Cct8", "Pdcd10", "Serpinb6a", "Ddost", "Vegfb", "Psmc4", "Wee1", "Ndufb10", "H2-Q4", "Fkbp4", "Fkbp3", "Vars", "Cep57", "Acsl5", "Uqcrc1", "Mybl1", "Raly", "Rnf181", "Cdc42", "Eno1", "Cask", "Rsrc2", "Shcbp1", "Fam83d", "Zfhx3", "S100a13", "Mrpl40", "Gpx7", "Mif", "Dnajb1", "Spdl1", "Cnot6", "Naa20", "Mrpl49", "Pdcl3", "Rnf7", "Cfdp1", "Ptpa", "Prelid1", "Fam110a", "Oip5", "Ivns1abp", "Cfap20", "Aimp2", "Rps20", "Dcps", "Hnrnpu", "Ppid", "Rnf5", "Rpn2", "Fam92a", "Bola2", "B2m", "Tssc4", "Commd3", "Dazap1", "Umps", "Tra2a", "Ubald2", "Sec61g", "Cavin1", "Ddx1", "Atp5f1", "Tax1bp1", "Gclm", "Dynll2", "Hist1h4d", "Prpf38a", "Pafah1b3", "Mapk1", "Mrps7", "Rps6ka3", "Mrps21", "Cib1", "Bola3", "Rps4x", "Uhrf2", "Psmd6", "4930579G24Rik", "Krt7", "Rbmxl1", "Rhoa", "Arpc2", "Gins4", "Cpne3", "Rab10", "Nop10", "Tmc4", "Mrps14", "Vrk1", "Fkbp1a", "Uchl3", "Pradc1", "Sdhb", "Krtcap3", "Gng12", "Rplp1", "Rfc1", "Elavl1", "Snrpb2", "Pcbp2", "Rab1a", "Ilk", "Rer1", "Pnrc2", "Kifc1", "Anapc13", "Mtdh", "Mrpl23", "Bcas2", "Retreg2", "Coa3", "Smc3", "Cdh1", "Sf3b1", "Ncl", "Trir", "Ly6e", "Mtx2", "Pcnt", "Ptp4a2", "Mdh2", "Ctsc", "Mrpl13", "Pdcd6", "Dap3", "Thyn1", "Tm2d1", "Sec11c", "Skp1a", "Ndc1", "Lamb2", "Fgfr1op", "Kras", "9130401M01Rik", "Bod1l", "Cyp39a1", "Zw10", "Psma4", "Snrpd2", "Tusc3", "Rbx1", "Ucp2", "Fuca2", "1110008F13Rik", "Baz1b", "Eif4a3", "Rnf186", "Psmb1", "Polr3k", "Ska2", "Tsg101", "Eif2s2", "Wfdc2", "Cldnd1", "Lgals3", "Usp14", "Reep5", "Myl6", "Luc7l3", "Vps36", "Mbd3", "Ppp1r11", "Lsr", "Rbm47", "Lurap1l", "Slc24a5", "Hnrnph3", "Gmcl1", "Pon2", "Timp3", "Ppp2ca", "Pet100", "Nup35", "Dpm3", "Psenen", "Snrpa1", "Polr2g", "Ccnd3", "Sap18", "Hras", "Rps5", "Irx2", "Arsb", "Tmem37", "Nfix", "Cttn", "Slc6a14", "Psmg2", "Prelid3b", "Lmf2", "Tnfaip8l1", "Egfl7", "Zwint", "Prmt1", "Pdzd11", "Hist2h2ac", "Uba52", "Neil3", "Vapa", "Ndufaf3", "Mrpl30", "Gna11", "Cd81", "Krt18", "Nfkbia", "Sec23b", "Cyba", "Ncapg", "Glrx5", "Tmem123", "Rplp2", "Tfdp1", "Cox6b1", "Aunip", "Faf1", "Myh9", "Paxip1", "Nptxr", "Gpsm2", "Snrpa", "Ppp4c", "Foxa1", "Nme1")
+
+kobayashi_pats <- c("S100a6", "Sfn", "Tmsb10", "Cldn4", "Clu", "AW112010", "Krt19", "Krt18", "Anxa1", "Krt8", "Tpm2", "Krt7", "Serpinb9", "Anxa2", "Ifitm3", "Epcam", "Lgals3", "Tnip3", "Sox4", "Anxa5", "Cyr61", "Cavin3", "Tuba1a", "S100a11", "Serpinb1a", "Crip1", "Lgals1", "Ccl20", "Actn1", "Mfge8", "Ubd", "Tubb5", "Ywhah", "S100a10", "Hspb1", "2200002D01Rik", "Nfkbia", "Cyba", "F3", "Cd24a", "Cd81", "Lurap1l", "Myl12a", "S100a14", "Tpm1", "Igfbp7", "Marcksl1", "Cfl1", "Myl12b", "Hsp90ab1", "Serpinh1", "Eno1", "Ptma", "Rtn4", "Anxa3", "Calm1", "Gadd45b", "Sparc", "Plb1", "Tacstd2", "Cxcl16", "Ifngr1", "Eif4a1", "Actb", "Tnfrsf12a", "Tmem176b", "Clic1", "Tspo", "Itgb6", "Cldn7", "Psmd8", "Pfn1", "Bst2", "Tpm4", "Lpcat4", "Msn", "Hspa8", "Jpt1", "Icam1", "Fn1", "Lhfp", "Lmna", "Cd47", "Cd9", "Zfp36l1", "Bhlhe40", "Cstb", "Ffar4", "Mif", "Cdk4", "Ly6a", "Tagln2", "Spint1", "Tgfb2", "Npm1", "Hnrnpf", "Dynll1", "Junb", "Rnh1", "Trp53", "Ywhaq", "Atp5b", "Dusp1", "Crlf1", "Gprc5a", "Cdc42", "Areg", "Timp2", "Myl6", "Cldn18", "Dstn", "Rhoa", "Crip2", "Cct8", "Rplp0", "Ran", "H2-D1", "Litaf", "Csrp1", "Rin2", "Capzb", "Rps2", "Pkm", "Cdkn1a", "Ywhae", "Pglyrp1", "Cd44", "Ier5", "Phlda1", "Rpl12", "Tpd52l2", "Psmb8", "Rps11", "Hmgn1", "Psma6", "Fkbp1a", "Laptm4a", "B2m", "Flna", "H2-Q7", "Mgst3", "Pdgfa", "Rps27l", "Bik", "Hnrnpk", "Tmem176a", "Ube2d3", "Rpl15", "Ifngr2", "Eif5b", "Cct3", "Hsp90aa1", "Cct5", "Ier3", "Psmd4", "Rab11b", "Nupr1", "Pabpc1", "Ubb", "Cct4", "Rpl4", "Abracl", "Psma3", "Prdx2", "Elob", "Emp2", "Arl6ip5", "Sqstm1", "Txnl1", "Ddah2", "Psmc5", "Bax", "Sh3bgrl3", "Eif5a", "Arpc3", "Gnas", "Cct6a", "Calm2", "Prmt1", "Ctnna1", "Spint2", "Set", "Tgfbi", "Psmb2", "Colgalt1", "H2-Q4", "Rbpms", "Tsg101", "Rpsa", "Psma7", "Cnih4", "Ahsa1", "Ybx1", "Pls3", "Gng5", "Rhoc", "Ccnd1", "Arpc2", "Tpm3", "F11r", "Chic2", "Trim47", "Klf5", "Capns1", "Glipr2", "Prkar1a", "Wdr1", "Tspan8", "Rpl13", "Hmgb1", "Cald1", "Hes1", "Snrpd1", "Tmem123", "Mt2", "Cmpk1", "Lsr", "Sri", "Phb2", "Hspa1a", "G3bp1", "Psmc6", "Btg1", "Eloc", "Cacybp", "Cox5a", "Mvp", "Klf6", "Bcl10", "H3f3b", "Pgrmc1", "Psme2", "Tuba1b", "Ranbp1", "Snrpg", "Rps16", "Eif3h", "Txndc9", "Serpinb6b", "Lamb3", "Hsd11b2", "Sat1", "Ctsh", "Gsn", "Tgif1", "Srpk1", "Gapdh", "Tbrg1", "Nbl1", "Shisa4", "Cdc37", "Akap5", "Cnn2", "Vdac3", "H3f3a", "Sdc1", "Chmp2b", "Ifi27", "Kcnk1", "Ppic", "Prr13", "Cryab", "Atp6v0e", "Il4i1", "Plpp2", "Krtap17-1", "Rsu1", "Dnaja1", "Rps5", "Rpl10a", "Calr", "Eif6", "Acot9", "Srsf2", "Erh", "Vdac2", "Tmem37", "Bola2", "Morf4l2", "Psmc3", "Rps4x", "St14", "Serpinb6a", "Jun", "Hmgn3", "Snrpb", "Tapbp", "Mcam", "Arpc5", "Rheb", "Asah1", "Comt", "Snrpf", "Rpl24", "Ctsl", "Psmb1", "Rpl39", "A230065H16Rik", "Rpl32", "Zfand5", "Ppa1", "Naa20", "Bcap31", "Nfkb2", "Pdgfb", "Ly6d", "Plp2", "Glrx3", "Vasp", "Ezr", "Aimp1", "Ncl", "Tmed2", "Frg1", "Rps7", "Snrpe", "Rtraf", "Ssb", "Edn1", "Phlda3", "Rps18", "Pdia3", "Ilk", "Rack1", "Rpl3", "Hspa9", "Rps17", "Cldn3", "Grn", "Hnrnpm", "Dnpep", "Hnrnpc", "Psmc2", "Btf3", "Actr3", "Ube2n", "Uba52", "Rdh10", "Bbip1", "Slc25a4", "Cdkn2b", "Pcbp1", "Atox1", "Pa2g4", "Cd63", "Sem1", "Shisa5", "Eef1g", "Tes", "Elavl1", "Psap", "Rpl23", "Rps26", "Samhd1", "Capn2", "Nop10", "Txndc17", "Sept2", "Rsl1d1", "Eef1a1", "Clic4", "Ppia", "Rbm39", "Rnf10", "Rras", "Rpl35", "Ppp1r11", "Cct2", "Eef1b2", "Psmb9", "Ddit4", "Sec62", "Rap1b", "Sdhb", "Slc39a4", "Rpl17", "Vmp1", "Fam174b", "Anp32a", "Psmb3", "St3gal4", "Marcks", "Lamp1", "Hnrnpab", "Nedd4", "Tmem165", "Ddx5", "Llph", "Txn1", "Ralb", "Adss", "S100a16", "Psma1", "Psmc4", "Uqcrfs1", "Serinc1", "Eif3l", "Rab1a", "Gadd45a", "Rab5c", "Fxyd3", "Gpx8", "Shtn1", "H2-K1", "Sarnp", "Hint1", "Tnfrsf11b", "Traf4", "Gas5", "Sin3b", "Cct7", "Tmc4", "Emp1", "Rpl7", "Taldo1", "Serf2", "Stip1", "Hist1h2bc", "Plpp3", "Ddx39b", "Rpl27", "Carhsp1", "Bzw1", "Dnajb1", "Edf1", "Srsf7", "Myh9", "Itgb1", "Eif3f", "Cops6", "Ifi35", "Nono", "Naca", "Plet1", "Rps4l", "Dpysl2", "Bcam", "Fkbp4", "Nhp2", "Eva1a", "Pcbp2", "Nars", "Selenof", "Rpl23a", "Aldoa", "Rpl28", "Rps6", "Tcp1", "Sesn3", "Eif4e2", "Sf3b6", "Srsf3", "Tprgl", "Gnai2", "Eif3g", "Psmd7", "Sphk1", "Ccnd2", "Cttn", "Mlf2", "Fblim1", "Serinc2", "Chrnb1", "Ormdl2", "Ap2m1", "Wbp4", "Timp3", "Pglyrp2", "Psma5", "Ifitm2", "Rpl8", "H2-Q6", "Rpl7a", "Skp1a", "Eef2", "Pdap1", "Tpr", "Mdk", "Mtx2", "Gpx2", "Metap2", "Rps27a", "Mrps18a", "Cfl2", "Pdcd6", "Eif2s1", "Prdx1", "U2af1", "Anxa6", "Tmsb4x", "Gabarapl2", "Rpl6", "Eif2s2", "Pdcl3", "Ocln", "BC005624", "Ghitm", "Tgfb1i1", "Rbm25", "Hspe1", "Atpif1", "Arf5", "Snrpd2", "Stoml2", "Snrpd3", "4930523C07Rik", "Tmem43", "Pdlim1", "Cdc42ep5", "Stap2", "Rbx1", "Ly6e", "Rpl31", "Ubald2", "Tap1", "Sugt1", "Psma4", "Jup", "Coro1b", "Hnrnpa3", "Rbbp4", "Isg15", "Dnajc8", "Polr2j", "Traf1", "Eif1a", "Adh5", "Arhgap8", "Psmb7", "Ap1s1", "Myo1b", "Sept7", "Nudcd3", "Coq10b", "Raly", "Gnb1", "Sf3b2", "Nradd", "Rps3a1", "Mlph", "Ano1", "Kif5b", "Rps13", "Tra2b", "Dynlt1f", "Psmc1", "Rps8", "Rpl19", "Relb", "Hspa5", "Foxn3", "Hbegf", "Dazap1", "Fstl1", "Rpl37", "Tax1bp1", "Stx7", "Akr1b8", "Ube2e1", "Ei24", "Cfdp1", "C1d", "H2-T22", "Trmt112", "Cyth2", "Myc", "Chchd1", "Rbbp7", "Mrpl38", "Gbp8", "Snrpb2", "Tmed9", "Cops5", "Arf1", "Psmd11", "Rexo2", "Dcun1d5", "Efna1", "Pdpn", "Med28", "2610001J05Rik", "Tmem50a", "Usmg5", "Tapbpl", "Puf60", "Ehd2", "Ccng1", "Ndufs2", "Pgap2", "Commd3", "Rpl14", "Rala", "Zfp706", "Cdc42se1", "Rplp2", "Dnaja2", "Rpl18a", "Supt4a", "Trir", "Rps23", "Tnfrsf9", "Snap23", "Tsta3", "Eif3k", "Rpl22", "Rpl9", "Smim15", "Polr2f", "Ccdc25", "Acadl", "Qsox1", "Rps20", "Psmb10", "Msln", "Eif3c", "Gdi2", "Rps15a", "Smarce1", "Bub3", "Selenow", "Ypel5", "Stx11", "Cotl1", "Rab14", "Ccdc124", "Nsfl1c", "Las1l", "Morf4l1", "Tspan31", "Fam96b", "Samd9l", "Son", "Vdac1", "Ntmt1", "Palld", "Rab6a", "Hacd2", "Actn4", "Trim28", "Maff", "Pin1", "Fundc2", "Ddx1", "Rae1", "Emp3", "Ctps", "Casp8", "Prmt2", "Gar1", "1110038B12Rik", "Pdlim2", "Rpl26", "Ptges3", "Nt5c", "Rps24", "Txnl4a", "Sgta", "Utp11", "Rab7", "Ceacam1", "Rab18", "Itm2b", "Fbln5", "Usp3", "Ube2f", "Timm17a", "Rpl36", "Ist1", "Ppig", "Ndufa4", "H2-DMb2", "Hspa4", "Osbpl9", "Tsen34", "Fam32a", "Stub1", "Aco1", "Atp6v1f", "Ctnnd1", "Vsig2", "Slc25a3", "Arrdc1", "Caprin1", "Atp5g1", "Ktn1", "Bok", "Ppp1ca", "Tfg", "Rab2a", "Arhgdia", "Adssl1", "Dctpp1", "St13", "Nme1", "Snx6", "Pfdn2", "Tnfrsf21", "Tln1", "Tmem98", "Nop56", "Rac1", "Idh3g", "1110004F10Rik", "Tap2", "Nucb1", "Psmd2", "Stmn1", "Trappc3", "Rap1a", "Hnrnpl", "Itm2c", "Mdh2", "Tbcb", "Ift22", "Gng12", "Rps25", "Polr1d", "Fads3", "Rps10", "Ewsr1", "Pfdn1", "Gpi1", "Rell1", "Rpl36a", "Hmgb3", "Psmb5", "Itgav", "Crlf2", "Fkbp3", "Tgm2", "Gm13588", "Slc39a1", "Rpl5", "Ube2g1", "Col4a1", "Ssr2", "Fcf1", "Rpl11", "Pigx", "Psmd14", "Etf1", "Capza2", "Sssca1", "Rpn2", "Thbs1", "2410006H16Rik", "Ppp2r1a", "Lsm2", "Commd4", "Tbca", "Ift43", "Unc50", "Sap18", "Clptm1l", "Uchl3", "Rpl30", "Arl1", "Hsbp1", "Swi5", "Eva1b", "Mrpl42", "Plscr3", "Fbl", "Hcfc1r1", "Camk1", "Map1lc3b", "Rps12", "Ergic3", "Mtdh", "Eif3a", "Wnt10a", "Snw1", "Cxcl10", "H13", "Slirp", "H2afz", "Cystm1", "Tada3", "Vill", "Hspd1", "Arpp19", "Mrpl34", "Smu1", "Chmp4b", "Anp32b", "Cox7c", "Dapk2", "Snx3", "Tead2", "Akt1s1", "Eif1", "Cetn3", "Chchd2", "Eif4ebp1", "Atp5a1", "Hat1", "Suds3", "Gclm", "Ddb1", "Lama3", "Kras", "Tpi1", "Mrpl17", "Phgdh", "Clta", "Rtp4", "Fxyd6", "Smarcc1", "H2-T23", "Cavin1", "Atp6ap1", "Nsrp1", "Dync1li1", "Etfa", "Stx8", "Wsb1", "Eif2a", "Rab10", "Rraga", "Fam210b", "Mvb12a", "Cnbp", "Hnrnpu", "Ssx2ip", "Psme1", "Ciapin1", "Lsm8", "Magoh", "Trip6", "Pak1", "Fam104a", "Ajuba", "Josd2", "Eif3e", "Nrbp1", "Angptl4", "Vps29", "Plek2", "Rpl22l1", "Chmp5", "Vcp", "2310007B03Rik", "Ppp4c", "Pmepa1", "Ube2k", "Ndnf", "Tomm40", "Eif1ax", "Yipf4", "2010107E04Rik", "Scand1", "Cycs", "Grasp", "Ddr1", "Mfsd10", "Psmg4", "Bcas2", "Mrpl3", "Rhog", "Plaur", "Ctsb", "Ywhab", "Ak2", "Cox20", "Dctn2", "Sfr1", "Uqcrc2", "Ehf", "Sf3b1", "Pigt", "Rpl38", "Gipc2", "Mtch2", "0610012G03Rik", "Myl9", "Glud1", "Ssu72", "Tuba1c", "Cuta", "Psmd12", "Atp5j", "Cox6b1", "Nsmce2", "Sh2d4a", "Ubxn1", "Snrnp27", "Itga3", "Rps15", "Pak1ip1", "Ubl7", "Smarcb1", "Vps72", "Flnb", "Rpl7l1", "Rce1", "Ube2r2", "Diablo", "Rpl13a", "Safb", "Timm10", "Tomm22", "Dcun1d1", "Ahnak", "Rps9", "Rtf1", "Ralbp1", "Rtcb", "Pttg1ip", "Pla2g16", "Sap30", "Cisd2", "Tpt1", "Cox7a2l", "Rbmxl1", "Ost4", "Rpl35a", "Eif3d", "Mbnl2", "Ski", "Krtcap3", "Zc3h15", "Clns1a", "Eprs", "Atg101", "Vat1", "Prkcsh", "Scamp3", "1110008F13Rik", "Gtf3c6", "Bnip3l", "Adrm1", "Capg", "Ddx18", "Mrpl30", "Mpzl2", "1810058I24Rik", "Lsm4", "Ten1", "Cttnbp2nl", "Taf12", "Rrad", "Slc44a2", "Zfand6", "Zfp622", "Tppp3", "Utp3", "Fam25c", "Eif4a3", "Nt5c2", "Polr2g", "Atxn10", "Nifk", "Ssna1", "Ash2l", "Ndufb9", "Pdcd5", "Csnk2b", "Prkcd", "Rps3", "Rnf11", "Pafah1b2", "Srsf6", "Jund", "Ntan1", "Ndufa12", "Thumpd3", "Klf2", "Esd", "Nudt21", "Tmem5", "Rpl41", "Ddx47", "Arid5b", "Mat2b", "Vta1", "Nap1l1", "Commd2", "H2afv", "Polr2h", "Sirt2", "Sgk1", "Dctn3", "Txnrd1", "Psmd6", "Col4a2", "Atg3", "Usp14", "Glipr1", "Ppil2", "Nip7", "Eif3i", "Mboat1", "Dync1i2", "Cops4", "Ctsz", "Gars", "Rgs4", "Malat1", "Prelid1", "Mbd3", "Adgrg1", "Bnip2", "Uqcrc1", "Gtf2e2", "Cnot7", "Lamtor2", "Cox7b", "Tmem183a", "Gm10736", "Ubxn2a", "Spr", "Dusp10", "Armc10", "Wwtr1", "Anapc2", "Cyb5r3", "Spcs1", "Rer1", "Sfxn3", "Bud31", "Efna4", "Psmb6", "Vapa", "Chtop", "Chtf8", "Mapk3", "Clptm1", "Ssbp1", "Rab38", "Sfpq", "Dlgap4", "Fubp1", "Mad2l2", "Efhd2", "Slc25a24", "Cops2", "Gnl2", "Fopnl", "Syf2", "Tma7", "Sdf2", "Acin1", "Pomp", "Abcf1", "Gpx1", "B9d1", "Cwc15", "Mapk13", "Slc9a3r1", "Prpf40a", "Med10", "Tubb2a", "Nectin4", "Rab11a", "Golga7", "Sac3d1", "Fam234a", "Exosc4", "Ccdc59", "Emc10", "Wasf2", "Tspan4", "Vapb", "Asna1", "Pebp1", "Ilf2", "Nae1", "Ginm1", "Mrpl21", "Pdk3", "Srp19", "Sp110", "Rps16-ps2", "Trip10", "Cnot8", "Ece1", "0610040J01Rik", "Rps29", "Kdelr1", "Rnaseh2c", "Pfdn6", "Prpf19", "Sbno1", "Thoc7", "Gm2000", "Rhbdf1", "G3bp2", "Nck1", "Metrnl", "Mrps17", "Fam96a", "Ehd1", "Atp6v1d", "Nectin2", "Rbm8a", "Fnbp1l", "Rrs1", "Reep3", "Zc2hc1a", "Ndufs4", "Sh3gl1", "Ppid", "Gabarapl1", "Rars", "Napa", "Iigp1", "Mpzl1", "Gm26917", "Nfu1", "Strn4", "Pkp2", "Ctnnbip1", "Nipsnap3b", "Pepd", "Psmb4", "Zwint", "Slc6a14", "Ppp3ca", "Sltm", "Pnn", "Mal2", "Otub1", "Lgals3bp", "Ctnnbl1", "Mrfap1", "B4galnt1", "R3hdml", "Gcnt2", "Dcakd", "Rbm17", "Tmem65", "Fat1", "Anxa4", "Rplp1", "Acer2", "Nap1l4", "Riok3", "Snf8", "Pef1", "Gm19990", "Rps28", "Gspt1", "Ndufv1", "Rrp1", "Sh3glb1", "Gm24949", "Chordc1", "Rpl18", "B4galt1", "Mcts1", "Wdr83os", "Pigs", "Atp5o", "Gusb", "F2rl1", "Tmem120a", "Gsto1", "Mcrip1", "Wnt7b", "Ap3s2", "Gpc4", "Cdc42ep1", "Arhgef16", "Tcf3", "Ppil1", "Ndufa5", "Magohb", "Lypla2", "9530068E07Rik", "Sfxn1", "Ik", "Hdac1", "Map7d1", "Atad1", "Rnf187", "Ssrp1", "Clip4", "Ndfip2", "Ubl4a", "Hyal2", "Pnisr", "Acp1", "Nedd9", "Dlat", "Srsf1", "Tomm20", "Mrps21", "Pnrc1", "Aip", "Arpc1b", "Atp5h", "Slc35e4", "Tnfrsf1b", "Camk2d", "Tomm5", "Ift27", "Krcc1", "Nelfe", "Lsm5", "Apex1", "Htra2", "Hdgf", "Ube2d1", "Brix1", "Tob1", "Gm12481", "Pdrg1", "Pcbd1", "Gsr", "Fuca1", "R3hdm4", "Eif5", "Map2k2", "Sh3bgr", "Lima1", "Tmem14c", "Utp18", "Syne2", "Plscr1", "Cbx1", "Adipor1", "Rab34", "Sf3b5", "Naxd", "Ldlrad4", "Irf2bpl", "Pmpcb", "Mapre1", "Cpsf6", "Pycr2", "Phf11d", "Nudc", "Spats2l", "Ubxn4", "Fam103a1", "Rps21", "Pole3", "Minos1", "Ip6k2", "Aamp", "P2rx4", "Ninj1", "Gata6", "Zranb2", "Phax", "Yy1", "Cldnd1", "Psmd1", "Trappc4", "H2-Oa", "Mrpl39", "Pdha1", "Misp", "Ndufb6", "Strap", "Sike1", "Mgat2", "Faim", "Ifi27l2a", "Ddx41", "Samm50", "Ruvbl1", "M6pr", "Nr1h2", "Twf1", "Memo1", "Ets1", "1810037I17Rik", "Fau", "Tsc22d1", "Tars", "Cd151", "Lrrc59", "Snx4", "Timm13", "Atp5d", "Luzp1", "Slc38a10", "Copb2", "Clic5", "Hspbp1", "Ttc9", "Eef1d", "Mrpl22", "Akap9", "Anxa7", "Maea", "Eif1b", "Rtfdc1", "Eif4g2", "Traf2", "Lxn", "Ptprs", "Cd2ap", "Fbxo22", "Anapc11", "Rbm7", "Tmbim6", "Rnf7", "Ttc33", "Arpin", "Os9", "Uqcrb", "Akr7a5", "Fam192a", "Pbxip1", "Dnajc7", "Lsm6", "Brd4", "Fam216a", "Cmc1")
+
+kobayashi_at1 <- c("Ager", "Sparc", "Cryab", "Emp2", "Igfbp7", "Gprc5a", "Akap5", "Clic5", "Timp3", "Cav1", "Clic3", "Tppp3", "Nnat", "Krt7", "Fbln5", "S100a6", "Aqp5", "Bcam", "Cldn18", "Ndnf", "Serpinb9", "Crip2", "Sec14l3", "2200002D01Rik", "Hopx", "Prdx6", "Dpysl2", "Vegfa", "Cav2", "Cd9", "Msn", "Pmp22", "Krt19", "Pdpn", "Lgals3", "Tspan8", "Lmo7", "Anxa5", "Timp2", "Anxa3", "Cyr61", "Tmem37", "S100a11", "Pdlim2", "Icam1", "Ppic", "Serpinb6b", "Mettl7a1", "Dag1", "Ehd2", "Myl12a", "Col4a3", "Samhd1", "Col4a4", "Selenbp1", "S100a14", "Capzb", "Anxa1", "Anxa2", "Myl12b", "Gsn", "Fam189a2", "Myl6", "Cavin2", "Actb", "Scnn1a", "Gadd45b", "Gramd2", "Bsg", "Pdgfa", "Tspan15", "St6galnac2", "Limch1", "Galnt18", "Ctnna1", "Ier3", "Crlf1", "Hs2st1", "F11r", "Ppp3ca", "Tmsb10", "Selenof", "Fdx1", "Rab11fip1", "Cd81", "Mlf2", "Cystm1", "Tmem176b", "Bmp4", "Ahnak", "Serpinh1", "Plb1", "Ctsh", "Mal2", "Krt18", "Ypel3", "Pxdc1", "Krtap17-1", "Npnt", "Fads3", "Clu", "Malat1", "Cdipt", "Crip1", "Cavin1", "Rhoa", "Fam174b", "Cavin3", "Hdgf", "Nkx2-1", "Myh14", "Itgb6", "Tmem176a", "Sema3b", "Krt8", "Eva1b", "Tmsb4x", "Lrpap1", "Slc6a14", "Pard6b", "Gng5", "Gpx4", "Slc44a2", "Plp2", "Cers2", "Asah1", "Cxcl16", "Matn4", "Nfkbia", "Dapk2", "Laptm4a", "H2-D1", "Pgrmc1", "Nbl1", "Ywhah", "Sptbn1", "Ostf1", "Foxn3", "Rtkn2", "Ywhae", "Cdkn2b", "Vapa", "Agrn", "Hmgn1", "Rps19", "Efna1", "Phyh", "Mthfd1", "Chmp5", "Slc25a4", "B2m", "Pls3", "Hcfc1r1", "Arid5b", "Tsc22d3", "Calm2", "Phlda1", "Tjp1", "Hspa8", "Eef2", "Scnn1b", "Stard3", "Osbpl9", "Abhd17c", "Tmem59", "Dusp1", "4930523C07Rik", "AU021092", "Hspb1", "Tgfb2", "Spop", "S100a10", "Pgap2", "Hbegf", "Hpcal1", "Nbeal1", "Hes1", "Cldn3", "Tns1", "Arpc2", "H3f3a", "Col4a5", "Rasl11a", "Myo1c", "Traf1", "Id1", "Tprgl", "Eps8l2", "2310007B03Rik", "Btf3", "Lamb3", "Tln1", "Cnn2", "Cdc42", "Stx7", "Apbb1", "Ywhaq", "Mprip", "Btg2", "Txnip", "Adrb2", "Col4a2", "Nedd9", "Akap13", "Mrpl14", "Manbal", "Id2", "Lamp1", "Limd2", "Ucp2", "Tmem160", "Bcap31", "Ifngr2", "Rps8", "Eif1", "Tpm3", "Gde1", "Hspg2", "Anxa4", "Elob", "Zfp36l1", "Tagln2", "Wwp1", "Rab25", "Tuba1a", "Vamp8", "Rab2a", "Rassf7", "Rin2", "Sfta3-ps", "Cfl1", "Pfn1", "Isg15", "Mtfr1l", "Bst2", "AA986860", "Ddr1", "Itga3", "Retreg1", "Arf1", "1110008F13Rik", "Ocln", "Akr1c14", "Pkm", "Tmod3", "Col4a1", "Lims1", "Itgb1", "Rasgef1a", "Scx", "Serinc5", "Ddx47", "Rpl10a", "Dusp14", "Slco3a1", "Anapc11", "Tpp1", "Capn2", "Pde7a", "Rab14", "Thbs3", "Sfn", "Tubb5", "Ubb", "Shroom3", "Grn", "Tnfrsf12a", "Cd59a", "Rac1", "Dctn2", "Tmbim6", "Prdx5", "Ndst1", "Csrp1", "Mfge8", "Neat1", "Fos", "Hck", "Ifi27", "Phldb2", "Tead1", "H2-K1", "Ap2m1", "Ctsl", "Gnas", "Commd2", "Fam104a", "Gata6", "Pabpc1", "Paip2", "Htra1", "Pcolce", "Ctps", "Bcl10", "Tpm2", "Elovl5", "Atp6v0e", "Shisa5", "Eif3e", "Ergic3", "Rasl11b", "Slc39a4", "Arpc5", "Adipor1", "Svil", "Prelid1", "Serpinb6a", "Ptms", "Rap1a", "S100a13", "Atxn10", "Scd2", "Ccnd3", "Dynll1", "Fhl1", "Calm1", "Pcbp2", "Ptpre", "Eif3h", "Rsrp1", "Clip4", "Ano1", "Laptm4b", "Spint2", "Crb3", "Prr13", "Adam9", "Rtn4", "Tmem140", "Map1lc3b", "Jup", "Dhrs3", "Zdhhc20", "Alcam", "Kif5b", "Lamc2", "Rpl24", "Aamp", "Rab6a", "App", "Orai1", "Arfgef3", "Acaa2", "Wwtr1", "Bnip3l", "Tapbp", "Calcoco1", "Tmem9b", "Cldn7", "Sptan1", "Pdcd10", "Arf3", "Arhgef2", "Rnf13", "Cyba", "Eif3k", "Prss8", "Tfdp2", "Klf5", "Gas5", "Aldh3b1", "2610001J05Rik", "Sept2", "Ltbp3", "Psmc3", "Myo1b", "Tmem50a", "Ube2d3", "Cgn", "S1pr2", "Eif3f", "Vdac2", "Coq7", "Srp14", "Rpl11", "Sar1b", "Naxd", "Adss", "Prkar1a", "Rhoc", "Gemin7", "Zfas1", "Vcl", "Rpl37a", "Eny2", "Ypel5", "Arhgdia", "March5", "Macf1", "Hsp90aa1", "Fam213a", "Yipf3", "Mxd4", "Prkcd", "Atxn1", "Gm19990", "Rbx1", "Cfl2", "Selenow", "Ccdc12", "Aamdc", "Cox5b", "Pef1", "2810474O19Rik", "Rpl36", "Psap", "Chmp2a", "Gm12481", "H2-DMb1", "Rps7", "Ubl3", "Esam", "Rasgef1b", "Plec", "Oaz2", "Myh9", "Taok3", "Eno1", "S100a1", "Nrbp2", "Cenpx", "Ccdc107", "Eif4a2", "Rpl37", "Cst3", "Rpl35", "Dynlt3", "Dazap1", "Edf1", "Lmo4", "Rps10", "Rps27", "Rpl27", "Cux1", "Emb", "Eif5b", "Muc1", "2610028H24Rik", "Os9", "Tmem123", "Sox4", "Rer1", "Fam103a1", "Otub1", "Hnrnpk", "Cox7a2l", "Hnrnpf", "Capns1", "Arl6ip5", "Lrp10", "H3f3b", "Rnf10", "Gstt1", "Sf3b5", "Sh2d4a", "Pink1", "Cdkn1c", "Rps26", "Gabarapl2", "Psmb7", "Psmb8", "Yipf4", "Hsp90ab1", "Rpl7", "Atxn7l3b", "Skp1a", "Flot1", "Rps11", "Ppp1ca", "Rap1b", "Cmpk1", "Snx3", "Minos1", "Tpd52l2", "Camk2d", "Usp14", "Rpl6", "Rsu1", "Capza2", "Hmgb1", "Gadd45g", "Gpx1", "Babam2", "Psmc6", "Itm2b", "Efhd2", "Comt", "Uap1l1", "Rock1", "Eif1ax", "Tpm4", "Mbnl1", "Prep", "Snapin", "Npdc1", "Ppdpf", "Wfdc1", "Cyb5r3", "Snx17", "Rpl39", "Dusp7", "1810058I24Rik", "Mal", "Copb1", "Fam174a", "1810037I17Rik", "Gtf2h5", "Fundc2", "Ube2r2", "Slc39a8", "Npm1", "Rpl18a", "Ddah2", "Rps16", "Lama3", "Hspa4", "Rpl9", "Fam46b", "Nop53", "Rnf181", "Ndufc2", "Fgf1", "Irf2", "H2-Q7", "Smpdl3a", "Cox5a", "Cldnd1", "Cops9", "Cct4", "Klf9", "Rpl28", "Mgst3", "Rpl31", "Commd10", "Smim3", "Supt4a", "Mmp11", "Smim7", "Mat2b", "Taldo1", "Rab11b", "Rpl27a", "Nt5c", "Klf2", "Atp5j2", "Plxna1", "Rpl18", "Tm9sf3", "Tbrg1", "Fam96b", "Spock2", "Hmox2", "Fis1", "Lrp4", "Sfxn3", "Ywhab", "Cox6a1", "Sypl", "Smc6", "Adam10", "Ctdspl", "Arhgap8", "Hsbp1", "Eif5a", "Gnb1", "Ifngr1", "Txndc9", "Unc50", "Cib2", "Erbin", "Arrdc1", "Rtraf")
+```
+
+```{r}
+# Cell-type markers from "PND1 - AT2/AT1" from Guo et al "Single cell RNA analysis identifies cellular heterogeneity and adaptive responses of the lung at birth" https://www.nature.com/articles/s41467-018-07770-1
+
+guo_at1_at2 <- c("Hook1", "Nedd4l", "Epha4", "Il18r1", "Exph5", "Cep170b", "Hs2st1", "Tmod1", "Mal2", "Llgl2", "9330182L06Rik", "Psat1", "Ppl", "Tfcp2l1", "Clip4", "Zfp462", "Rbpjl", "AA986860", "Cdcp1", "Lamb3", "Atp6v0a4", "Slco4c1", "Aqp5", "Pcx", "Stard10", "Cdkn2b", "Tmem37", "Cobl", "Erbb3", "Cecr2", "Myo5b", "Igsf5", "Rab25", "Msln", "Pip5k1b", "Crb3", "Dsp", "Cds1", "Atp7b", "Cgn", "Areg", "Fam184a", "Col4a5", "Traf1", "Akap5", "Slc26a9", "Pkp2", "Zfp385b", "Epn3", "Tmem62", "Eps8l2", "Sh2d4a", "Slc37a1", "Shh", "Plekhd1", "Ndnf", "Pitpnm3", "Slc6a14", "Rab11fip1", "Lamc2", "Ano1", "Fam189a2", "Fzd5", "Cldn4", "Daam2", "Esrp1", "Gipc2", "S100a14", "Gnmt", "Klc3", "Gramd2", "Ccdc120", "Matn4", "Sh3d21", "Sec14l4", "Sema3b", "Col4a3", "Tmem116", "Egfr", "Sema3e", "Pde8b", "2310007B03Rik", "Akr1c14", "Sema3a", "2210011C24Rik", "Fabp3", "Vnn1", "Scnn1g", "Liph", "Rprm", "Rap1gap", "Col4a4", "Pard6b", "D10Bwg1379e", "Rtkn2", "Scnn1b", "Itgb6", "Mfap3l", "Eya2", "Scel")
+
+```
+
+
+```{r}
+# Cell-type markers from "Figure 1D - scSEQ of lineage labeled sftpc" from Choi et al "Inflammatory Signals Induce AT2 Cell-Derived Damage-Associated Transient Progenitors that Mediate Alveolar Regeneration" https://www.sciencedirect.com/science/article/pii/S1934590920302873
+# Note: Full list of marker genes is not reported
+
+choi_datp <- c("Cldn4", "Krt8", "Cdkn1a", "Ndrg1", "Sprr1a", "Tnip3", "Ly6a")
+```
+
+```{r}
+
+desai_bp <- c("Osm","Pik3cd","Sftpc","Ddx6","Abcg1","Trpm7","Ets2","Usf2","Cotl1","Tcf7l2","Zdhhc14","Dag1","Nlrx1","Runx1","Trim25","Trem1","C77027","Ptpn12","Ear2","Mapre1","Eepd1","Cx3cr1","Nfkbiz","Gan","Gpr107","Irs2","Naaa","Fosl2","Spty2d1","Zeb2","Nr4a2","Plxdc2","Sf1","Sh3bp5","Diap2","Slc35a5","Kdm6b","Dusp16","Ctsh","E2f5","Sfxn2","Clec7a","Edn3","Per1","Maff","Rabgef1","Usp25","Kif13a","Cpne3","Gatad2a","Arrdc1","Bcl2l11","Pde7a","Trib1","Crybb1","Hif3a","Mapkapk3","Slc25a29","Tiparp","Pcsk5","Hexim1","Frat2","Bach1","Egr1","Crem","Sertad1","Atp7a","Frmd4a","Klhdc4","Amz1","Rbms3","Zswim6","Cd300lf","Socs3","Myh9","Ptprf","Mcl1","Ier2","Nab1","Zfp36","Adamtsl2","Flrt3","Csrnp1","Btg2","Tmem164","Ctsc","Rap2a","Poldip3","Ski","Jhdm1d","Tgfbi","Lrrfip1","Myo7a","Kctd12b","Mospd2","Spsb2","Cmtm6","Fras1","Dnajb14","Sf3b4","Cyfip1","Cd8a","Cyr61","Bnip2","Stard9","Cybasc3","Sema3f","Hhip","Fam124b","Clec4a3","Fam38a","Vamp3","Klf6","Lemd2","Il6ra","Cyp4f18","Mef2a","Zkscan3","Cttnbp2nl","Cpeb2","Kank2","Ptch2","Uxs1","Ergic3","Eif2ak2","Map3k3","Akap5","Tnfrsf1a","Adora2b","Glt25d1","Gadd45gip1","Dnajb9","Shh","Pxdn","Cd44","Pqlc1","Rgs2","Alcam","Hif1an","Spef1","Cyth1","Fosb","Lyst","Myo1c","Ndel1","Lipo1","Fam129a","Junb","Acbd3","Hgsnat","Ap3b1","P2ry13","Diap1","Pum1","Egr2","Lnpep","Pde4b","Chst5","Dgat1","Eif2c3","Mthfs","Senp7","Picalm","Ccr1","Irak4","Ap1s2","Cd33","Naip2","Pik3r6","Jun","Btbd7","Fos","Tmod3","Mfsd7c")
+
+desai_at2 <- c("Odf3b","Dnajb14","Fam183b","AU021034","Dnahc6","Trpm7","Ddx6","Dnahc9","Lrrc48","Cd83","Cd207","Ces1d","Etv3","Tmem107","Lpar3","Cpne3","Spag16","Akap14","Eno4","Ftsjd2","Alcam","Endog","Ubc","Naaa","Nr4a2","Fam179a","Gga1","C77027","Irs2","Slc16a11","Kif6","Fam47e","Slc35a5","Lrrk1","Wdyhv1","Abcg1","Ppt1","Kdm6b","Cyp2f2","Trib1","Cmtm6","Cdc14a","Morn1","Fam20b","Cetn2","Ppil6","Runx1","Nfkbia","H2-DMa","Spp2","Irx5","Ttc21a","Ttc30b","H2-Aa","Hes1","Osbpl6","Ak7","AB041803","Dock10","Ear2","Gas2l2","H2-DMb1/2","Egr1","Ccl17","Osm","Syngr2","Acbd3","Capsl","Ier2","Tmem123","Ccdc30","Zfp36","Tm7sf4","Itgb1","Flii","Spef1","Gas8","Xcr1","Ccdc162","Adrbk2","Selenbp1","Ide","Kdm6a","Zbtb42","Hps4","Pik3cd","Fam13a","Ctsb","Cyfip1","Chd4","Gm1574","Iqgap1","Cotl1","Reep3","Fam149a","Ear3","Spty2d1","Wdr66","Stim1","Tctex1d4","Zfp800","Nav2","Parp4","Ttll3","Skil","Aldh3b1","C030046G05","Ptchd1","Rsph4a","Ccr10","Dynlrb2","Pkib","Ubl3","Arih2","Arpc2","Ier5","Hspb11","Zeb2","Glt25d1","Camk1d","Grasp","Egr2","Cd44","Wdfy4","H47","Zfp36l1","Ttc34","Ubxn4","Btg1","Fbrsl1","Myo1g","Nek5","Mthfs","Itgae","Cib4","Cyp2s1","Gns","Sfxn2","Mapk15","Amz1","Ppm1m","Ifi30","Nfkbiz","Map3k5","Sec24b","Irak1","Aftph","Lrrc45","Lemd2","Ddx5","Pcbd2","Ift172","Rnaset2a/b","Gm101","Scgb1a1","Pole3","Mef2a","Tbc1d4","Spag9","Tlr3","Iqce","Hps1","Mcl1","Emp1","Tmem212","Nme5","Gpr155","Dnahc1","Gabrp","Wdr34","Iqca","Aldh1a1","Sema4a","Tor1b","Clec7a","Taok3","Cpeb2","Sf3b2","Tmem50b","Btg2","Ccl22","Ing3","Fosb","Cdhr4","Fam164a","Laptm5","Tiparp","Hspa4l","Igj","Mgl2","Unc119b","Rnf215","Tmbim1","Dnaic2","H2-Ab1","Atf3","Wdr19","Limd1","Rtdr1","Alas1","Dync2h1","Hectd1","Nr4a3","Ppp1r16a","Sh3pxd2b","Tnfaip3","Tob2","Mga","Nab1","Kcnmb2","Lasp1","Tpr","Rsph3a/b","D19Ertd744e","Crebbp","Maff","Hfe","Dnahc7a","Eif2c3","Fam154b","Picalm","Elof1","Hydin","AU017263","Sh3bgrl","Tmem219","Osgin2","Gadd45b","Crem","Lca5","Mfsd6l","Pde4b","Ccdc151","Foxj1","Fos","Mapkapk3","Junb","Cldnd1","Ap3b1","Fam129a","Arl6ip1","Endod1","Uvrag","Rsph9","Gm6377","Tyk2","Antxr2","Cybasc3","Bhlhe40","Cytip","Gsto1","Arhgap5","Hspa1a","Plbd1","Larp4b","Wwc1","Map3k3","Dyx1c1","Wnt11","Rab43","Fhad1","Nbas","Ezr","Kif13b","Pi4k2a","Amac1","Bat5","Dync2li1","Bach1","Ccdc108","Col4a3bp","Jun","Ttc12","Gm1060","Cd86","Cbfa2t3","Aldh1a7","Chchd6","Mycbp","Ptpn11","Gan","Dcxr","Klf6","Ccdc153","Cd209c","Naga","Tbc1d8","Ccdc74a","Pnrc1","Atp7a","Il6ra","Oscp1","Ndel1","H2-Eb1","Cetn4","Leprot","Nfe2l2","Brd2","Fam38a","Cdhr3","D15Wsu126e","Tbc1d22a","Rp2h","Lrrc51","Mbp","Mospd2","Twf2","Tgfbi","Eif1","Wnk1","Mapre1","Trp73","Rela","Tcf7l2","Rps28","Iffo2","Zfp445","Ighg","Lrrfip1","Gapvd1","T2","Ccdc40","Tagln2","Diap2","Gtl3","Map2k3","Sdc1","Wdr78","Dnajb1","Kcnj13","Cc2d2a","Dnahc7b","Cyth1","Kif13a","Gm4368","Ik","Nr4a1","Cep164","Mettl7a1","Spag6","Actr3","Cdkn1a","Cass4","BC017612","Plxnb1","Sftpc","Appl2","Dnajb9","Tekt2","Mobkl2b","Socs3","Srf","Klrb1b","Fam167a","Usp19","Lrrc23","Scaper","Ctsh","Rap2a","Galnt11","Actg1","Igh-VJ558","Ifi35","Zc3h12c","BC013712","Dusp1","Far1","Cd209a","Gdi2","Gna13","Tmem109","Ucp2","Ift81","Cldn3","Fosl2","Bcl2l11","Porcn","Tnfsf9","Cab39","Efr3a","Chuk","Mycbp","Lztfl1","Tctn2","Btbd7","Carkd","Akap9","Nphp1","Arl13b","Ski","Fign","Gm2a","Atp7b","Ctss","Arhgdig","Igh-6","Apoa1bp","Tle1","Pbrm1","St3gal1","Nfkbid","Batf3","Ubn1","Fam69a","Gng10","Egr3","Srrm2","Hepacam2","Akap13","Rbm39","Hspa1b","Kctd12","Ccdc146","Id2","Celsr1","Dpcd","Prkx","Rgs2","Diap1","Csf2rb","Nudt14","Arc","Efhc1","Arsb","Usp7","Pum1","Gpr120","Man2b1","Ddx3x","Rabl2","Hexb","Tnfaip8","Cckar","Ptger4","Rgnef","Sema4f","Ptpn12","Cmtm8","Cbr3","Stk30","Ccdc52","Irf8","Zzef1","Zfp474","Mobkl1b","Efcab1","Uhrf1bp1l","Atp13a3","Il13ra1","Prkar2a","Socs3","Caps2","Rassf7","Csrnp1","Agps","Mical1","Slc29a3","Rc3h2","Ap1s3","Gm5918","Dab2ip","Stx6","Tbca","Fbxw11","Ccrl2","Xist","Tmem176a","Ttc7","Agrp","Kif21a","Ctnna1","Lonrf3","Trim25","Klf4","Rsf1","Rsph10b2","Foxa2","Jdp2","Pgap2","Bnip2","Arl3","Dusp5","Scnn1b","Traf3ip1","Actb","Hsp90b1","Pvr","Plek","Gnai2","Mfsd6","Csde1","Rab11b","Rock1","Ccnd2","Ccdc114","Htr7","Ang3","Wdsub1","Mak","Uggt1","Slc26a2","Sypl","Rnf6","Lsp1","Tmed10","Zbtb46","Srp14","Il18","Flt3","Dusp18","Gpr137b","Cdh1","AU040972","Itgax","Il10ra","Nxph3","Arid4b","Itsn2","Pqlc1","Relb","Baz2a","Hipk2","Pcyt1a","Gpr33","Tppp3","Ccdc12","Slc25a36","Ift57","Hes6","Col23a1","Rab36","Cd80","Ep400","Fam119a","Tekt4","Armc3","Ptpn13","Atp2b1","Chka","Atp6v0a2","Gtpbp4","Trpv2","Chi3l3","Per1","Cyb561","AW555355","Prr5l","Wdr16","Arf4","Hspa2","Rabgef1","Rpgr","Rnf166","Mll5","Mvp","Pdcd6ip","Ifrd1","Zfp318","Gdpd1","Snx6","Bcap31","Gm5480","Mapk14","Dusp16","Crlf2","D19Ertd652e","Gpr137b-ps","Itga4","Rsph1","Erlin1","Cxcl2","Creb5","Foxa1","Ttc25","Abca7","Jak2","AA408251","Ubxn11","Slc23a2","Pip4k2a","Ammecr1l","Hdc","Ift88","Smarca4","Muc20","Rassf9","Shfm1","P2rx4","Paqr7","Vps52","Slc12a2","Tssc4","Nsmaf","Mtf1","Plxnc1","Usp6nl","Fhdc1","Slc22a15","Fars2","Nlrx1","Fndc7","Sbno1","Acot1","Eml3","Sec23b","Dennd1b","Acss1","Hbxip","AV249152","Pvr","Ly75","Ap3d1","Tnfaip2","Il1a","Ttf1","Enkur","Nudt9","Dnajc1","Cyp39a1","Arrdc1","Entpd4","Slc41a1","Irf5","Dnajc17","Rgnef","Fam105a","Rbpj","Cpd","Zfp704","Odc1","Pdlim5","Tor1aip1","Yipf6","Dnajb2","Fgl2","Rtn4","Ccnd1","Trio","Hnrnph2","Orai1","Skap2","Skap2","Aldh16a1","Ddhd1")
+
+desai_bp_unique <- desai_bp[!(desai_bp %in% desai_at2)]
+
+
+```
+
+
+```{r}
+epi_relabeled_markers_positive <- lapply(epi_relabeled_markers, function(x) {filter(x, avg_log2FC > 0 & p_val_adj <= 0.05)})
+
+jaccard_strunz_at2 <- lapply(epi_relabeled_markers_positive,
+                             function(x){jaccard(rownames(x),strunz_at2) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+jaccard_strunz_activated_at2 <- lapply(epi_relabeled_markers_positive,
+                                       function(x){ jaccard(rownames(x),strunz_activated_at2) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+jaccard_strunz_ADI <- lapply(epi_relabeled_markers_positive,
+                             function(x){ jaccard(rownames(x),strunz_ADI) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+jaccard_strunz_at1 <- lapply(epi_relabeled_markers_positive,
+                             function(x){ jaccard(rownames(x),strunz_at1) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+
+jaccard_treutlein_at2 <- lapply(epi_relabeled_markers_positive,
+                                function(x){ jaccard(rownames(x),treutlein_at2) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+
+jaccard_treutlein_at1 <- lapply(epi_relabeled_markers_positive,
+                                function(x){ jaccard(rownames(x),treutlein_at1) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+jaccard_treutlein_ciliated <- lapply(epi_relabeled_markers_positive,
+                                      function(x){ jaccard(rownames(x),treutlein_ciliated) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+jaccard_treutlein_secretory <- lapply(epi_relabeled_markers_positive,
+                                      function(x){ jaccard(rownames(x),treutlein_secretory) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+
+```
+
+```{r}
+jaccard_kobayashi_at1 <- lapply(epi_relabeled_markers_positive,
+                                function(x){ jaccard(rownames(x),kobayashi_at1) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+
+jaccard_kobayashi_at2 <- lapply(epi_relabeled_markers_positive,
+                                function(x){ jaccard(rownames(x),kobayashi_at2) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+
+
+jaccard_kobayashi_at2_prolif <- lapply(epi_relabeled_markers_positive,
+                                       function(x){ jaccard(rownames(x),kobayashi_at2_prolif) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+
+jaccard_kobayashi_pats <- lapply(epi_relabeled_markers_positive,
+                                 function(x){ jaccard(rownames(x),kobayashi_pats) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+
+
+jaccard_choi_datp <- lapply(epi_relabeled_markers_positive,
+                            function(x){ jaccard(rownames(x),choi_datp) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+
+
+jaccard_guo_at1_at2 <- lapply(epi_relabeled_markers_positive,
+                              function(x){ jaccard(rownames(x),guo_at1_at2) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+
+jaccard_desai_bp <- lapply(epi_relabeled_markers_positive,
+                           function(x){ jaccard(rownames(x),desai_bp_unique) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+```
+
+```{r}
+
+merged_jaccard <- rbind(#jaccard_strunz_at2,
+                        #jaccard_strunz_activated_at2,
+                        jaccard_strunz_ADI,
+                        #jaccard_strunz_at1,
+                        #jaccard_treutlein_at2,
+                        #jaccard_treutlein_at1,
+                        #jaccard_treutlein_ciliated,
+                        #jaccard_treutlein_secretory,
+                        #jaccard_kobayashi_at1,
+                        #jaccard_kobayashi_at2,
+                        #jaccard_kobayashi_at2_prolif,
+                        jaccard_kobayashi_pats,
+                        jaccard_choi_datp,
+                        jaccard_guo_at1_at2,
+                        jaccard_desai_bp
+
+
+)
+
+rownames(merged_jaccard) <- c(#"Strunz et al. - AT2",
+                              #"Strunz et al. - Activated AT2",
+                              "Strunz et al. - ADI",
+                              #"Strunz et al. - AT1",
+                              #"Treutlein et al. - AT2",
+                              #"Treutlein et al. - AT1",
+                              #"Treutlein et al. - Ciliated",
+                              #"Treutlein et al. - Secretory",
+
+                              #"Kobayashi et al. - AT1",
+                              #"Kobayashi et al. - AT2",
+                              #"Kobayashi et al. - AT2 Prolif.",
+                              "Kobayashi et al. - PATS",
+
+                              "Choi et al. - DATP",
+
+                              "Guo et al. - AT1/AT2",
+                              "Desai et al. - BP"
+)
+colnames(merged_jaccard) <- names(epi_relabeled_markers)
+merged_jaccard <- merged_jaccard[,1:5] # Only keep Alveolar cells
+merged_jaccard_norm <- t(apply(merged_jaccard, 1, function(x)(x-min(x))/(max(x)-min(x))))
+
+merged_jaccard_norm_sum <- t(apply(merged_jaccard, 1, function(x)(x)/(sum(x))))
+
+jaccard_heatmap <- ggplot(melt(as.matrix(merged_jaccard_norm)), aes(x = Var2, y = Var1, fill = value, label = round(value, digits = 3))) +
+        geom_tile() +
+        scale_fill_distiller(palette = "Blues", direction = 1, name = "Jaccard Index", trans = "exp") +
+        geom_text(data = melt(as.matrix(merged_jaccard_norm_sum)), aes(x = Var2, y = Var1, label = round(value, digits = 3))) +
+        theme(aspect.ratio = 0.8,
+              panel.grid = element_blank(),
+              axis.title = element_blank(),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              legend.text = element_text(size = 12),
+              legend.title = element_text(size = 12),
+              axis.text = element_text(size = 12, color = "black"),
+              axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+              )
+
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=jaccard_heatmap, width=unit(8, "cm"), height=unit(8, "cm")))
+ggsave("./data/figures/epi/epi_jaccard_heatmap.pdf",
+       gridExtra::grid.arrange(egg::set_panel_size(p=jaccard_heatmap, width=unit(8, "cm"), height=unit(8, "cm"))),
+       dpi = 300, bg = "transparent",
+       width=unit(6.5, "cm"), height=unit(5, "cm"))
+
+```
+
+```{r}
+p_timepoint <- DimPlot(epi_relabel, group.by = "timepoint") + umap_theme() +
+  scale_colour_manual(name = "Timepoint", values = color_category_20) +
+  theme(aspect.ratio=1,
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 12),
+        plot.title = element_blank(),
+        panel.background = element_rect(fill = "transparent", colour = "black"),
+        plot.background = element_rect(color = "transparent", fill = "transparent")
+  )
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=p_timepoint, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/epi/epi_labeled_umap_timepoint.png",
+       egg::set_panel_size(p=p_timepoint, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+```
+
+
+
+```{r}
+marker_genes <- c("Mdk", "Mki67", # Early Epithelium
+                  "Cdkn1a", "Krt8", # Transitional?
+                  "Hopx", "Aqp5", #AT1
+                  "Sftpa1", "Sftpc", # AT2
+                  "Foxj1", "Dynlrb2", # Ciliated
+                  "Scgb1a1", "Scgb3a2", # Secretory
+                  "Ascl1", "Scg5" #Neuroendocrine
+)
+
+epi_marker_plot <- DotPlot(epi_relabel, features = marker_genes, group.by = "celltype", dot.scale = 8)
+
+epi_marker_plot_w_theme <- epi_marker_plot +
+  scale_color_distiller(palette = "Blues", direction = 1, name = "Expression") +
+  scale_y_discrete(limits=rev) +
+  theme(axis.title = element_blank(),
+        axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 12),
+        aspect.ratio = 1,
+        panel.background = element_rect(fill = "transparent", colour = "black"),
+        plot.background = element_rect(color = "transparent", fill = "transparent"),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 12)
+  )
+
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=epi_marker_plot_w_theme, width=unit(9.5, "cm"), height=unit(7, "cm")))
+ggsave("./data/figures/epi/dotplot_markers.pdf",
+       egg::set_panel_size(p=epi_marker_plot_w_theme, width=unit(9.5, "cm"), height=unit(7, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(7, "cm"), height=unit(4, "cm"))
+
+```
+
+# Write anndata for relabeled epi
+```{r}
+writeAnnData <- function(seurat_obj, filename){
+  anndata::AnnData(X = t(GetAssayData(seurat_obj, slot = "data", assay = "SCT")),
+                   var = data.frame(gene = rownames(seurat_obj),
+                                    row.names = rownames(seurat_obj),
+                                    highly_variable = rownames(seurat_obj) %in% VariableFeatures(seurat_obj)
+                   ),
+                   obs = data.frame(celltype = as.character(seurat_obj$celltype),
+                                    louvain = as.character(seurat_obj$seurat_clusters),
+                                    timepoint = as.character(seurat_obj$timepoint),
+                                    condition = as.character(seurat_obj$condition),
+                                    row.names = colnames(seurat_obj)),
+                   obsm = list(X_umap = matrix(Embeddings(seurat_obj, reduction = "umap"), ncol = 2))
+  )$write_h5ad(filename, compression = "gzip")
+}
+
+filename <- "./data/20210802_epi_relabel.h5ad"
+if (!file.exists(filename)) { # Create if doesn't exist
+  writeAnnData(epi_relabel, filename)
+}
+```
+
+```{r}
+epi_relabel$timepoint_numeric <- epi_relabel$timepoint
+levels(epi_relabel$timepoint_numeric) <- 1:length(levels(epi_relabel$timepoint))
+epi_relabel$timepoint_numeric <- as.numeric(epi_relabel$timepoint_numeric)
+
+
+# Code from here: https://github.com/cole-trapnell-lab/monocle3/issues/502
+# create cell dataset, don't worry about the warning
+epi_cds <- monocle3::new_cell_data_set(
+        Seurat::GetAssayData(epi_relabel, assay='RNA', slot='data'),
+        cell_metadata=epi_relabel@meta.data
+)
+
+saveRDS(epi_cds, "./data/20210802_celldataset_epi_relabel.rds", compress = "bzip2")
+```
+
+
+
+## Calculate mean and SD based on the four mice..
+```{r}
+cell_ident_df <- data.frame(timepoint = epi_relabel$timepoint,
+                               cluster = epi_relabel$celltype,
+                               antibody = epi_relabel$HTO_antibody)
+prop_detail_df <- melt(round(prop.table(table(cell_ident_df$timepoint, cell_ident_df$cluster), 1) * 100, 1))
+colnames(prop_detail_df) <- c("timept", "celltype", "mean")
+
+prop_by_mouse <- lapply(as.character(unique(epi_relabel$timepoint)), function(timept){
+
+  filt_by_timept <- filter(cell_ident_df, timepoint == timept) %>% as.data.frame()
+  one_timept_vals <- melt(round(prop.table(table(filt_by_timept$timepoint, filt_by_timept$cluster), 1) * 100, 1)[timept,])
+
+  # Handle E12, no antibodies
+  if (timept == "E12") {
+    out <- data.frame(timepoint = rep(timept, length(unique(unique(cell_ident_df$cluster)))),
+                      celltype = rownames(one_timept_vals),
+                      mean = one_timept_vals$value,
+                      SD = rep(0, length(unique(unique(cell_ident_df$cluster)))),
+                      SEM = rep(0, length(unique(unique(cell_ident_df$cluster))))
+    )
+    return(out)
+  } else {
+    one_timept_res <- lapply(unique(epi_relabel$HTO_antibody[epi_relabel$timepoint == timept]), function(ab){
+      filt_by_timept <- filter(cell_ident_df, timepoint == timept & antibody == ab) %>% as.data.frame()
+      one_timept_vals <- melt(round(prop.table(table(filt_by_timept$timepoint, filt_by_timept$cluster), 1) * 100, 1)[timept,])
+    }) %>% do.call(cbind, .)
+
+    out <- data.frame(timepoint = rep(timept, length(unique(unique(cell_ident_df$cluster)))),
+                      celltype = rownames(one_timept_vals),
+                      mean = rowMeans(one_timept_res),
+                      SD = apply(one_timept_res, 1, sd),
+                      SEM = apply(one_timept_res, 1, function(x) sd(x)/sqrt(length(x))))
+    return(out)
+  }
+}) %>% do.call(rbind, .)
+
+epi_celltype_order <- c("Early Epithelium",
+                        "Transitional",
+                        "AT1",
+                        "AT2",
+                        "Mki67+ AT2",
+                        "Ciliated",
+                        "Secretory",
+                        "Neuroendocrine"
+)
+
+prop_by_mouse$celltype <- ordered(as.factor(prop_by_mouse$celltype), epi_celltype_order)
+
+```
+
+```{r}
+
+cumulitive_prop_by_mouse <- prop_by_mouse %>% group_by(timepoint) %>% arrange(celltype) %>% mutate(cs = rev(cumsum(rev(mean))))
+cumulitive_prop_by_mouse$timepoint <- ordered(as.factor(cumulitive_prop_by_mouse$timepoint), c("E12", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14"))
+prop_by_mouse$timepoint <- ordered(as.factor(prop_by_mouse$timepoint), c("E12", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14"))
+
+epi_mountain_plot <- ggplot() +
+        geom_area(data = prop_by_mouse,
+                  aes(group = as.factor(celltype), color = as.factor(celltype), fill = as.factor(celltype), y=mean, x=as.factor(timepoint))) +
+        #geom_point(data = cumulitive_prop_by_mouse,
+        #           aes(group = as.factor(celltype), color = as.factor(celltype), fill = as.factor(celltype), y=cs, x=as.factor(timepoint))) +
+        geom_errorbar(data = cumulitive_prop_by_mouse,
+                      aes(ymin=cs-SEM, ymax=cs+SEM, y=cs, x=as.factor(timepoint)), width=.1, color = "#4B4B4B", alpha = 0.8) +
+        xlab("Day") +
+        ylab("% of cells") +
+        labs(fill = "Cluster", color = "Cluster", group = "Cluster") +
+        scale_colour_manual(aesthetics = c("color", "fill"), values=color_category_20) +
+        theme(legend.key = element_blank(),
+              legend.text = element_markdown(size=14),
+              legend.title = element_text(size=14),
+              axis.text.x  = element_text(size=14, color = "black"),
+              axis.text.y = element_text(size=14, color = "black"),
+              axis.title.x = element_text(size=14),
+              axis.title.y = element_text(size=14),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.background = element_rect(fill = "white")
+        ) +
+        scale_x_discrete(expand = c(.01, .01)) +
+        scale_y_continuous(expand = c(.01,.01)) +
+        coord_fixed(0.05)
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=epi_mountain_plot, width=unit(10, "cm"), height=unit(10, "cm")))
+
+ggsave("./data/figures/epi/epi_mountains.pdf",
+       egg::set_panel_size(p=epi_mountain_plot, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(7, "cm"), height=unit(5, "cm"))
+
+```
+```{r}
+prop_by_mouse[prop_by_mouse$celltype == "AT1",] %>% t()
+```
+
+```{r}
+at1_seurat <- subset(epi_relabel, celltype == "AT1" & timepoint %in% c("E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14"))
+```
+
+```{r}
+VlnPlot(epi_relabel, "Sftpc", group.by = "timepoint")
+```
+
+```{r}
+eln_markers <- c("Eln", "Fbn1", "Fbn2", "Fbln5", "Fbln1", "Fbln2", "Fbln3", "Fbln4", "Emilin1", "Mfap2",
+                 "Ltbp1", "Ltbp2", "Ltbp3", "Ltbp4", "Lox", "Loxl1", "Loxl2", "Loxl3")
+
+
+eln_at1_exp_plot <- DotPlot(at1_seurat, features = eln_markers, group.by = "timepoint", dot.scale = 6)
+
+eln_at1_exp_plot_w_theme <- eln_at1_exp_plot +
+        scale_color_distiller(palette = "Blues", direction = 1, name = "Expression") +
+        scale_y_discrete(limits=rev) +
+        theme(axis.title = element_blank(),
+              axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 12),
+              aspect.ratio = 1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              legend.text = element_text(size = 12),
+              legend.title = element_text(size = 12)
+        )
+
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=eln_at1_exp_plot_w_theme, width=unit(10, "cm"), height=unit(5, "cm")))
+ggsave("./data/figures/epi/eln_AT1.pdf",
+       egg::set_panel_size(p=eln_at1_exp_plot_w_theme, width=unit(10, "cm"), height=unit(5, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6.5, "cm"), height=unit(3.5, "cm"))
+
+```
+
+```{r}
+ecm_genes <- c('Col4a1', 'Col4a2', 'Col4a3', 'Col4a4', 'Col4a5', 'Col4a6', 'Hspg2', 'Lama1', 'Lama3', 'Lama5', 'Lamb1', 'Lamb2', 'Lamb3', 'Lamc1', 'Lamc2')
+
+
+
+ecm_at1_exp_plot <- DotPlot(at1_seurat, features = ecm_genes, group.by = "timepoint", dot.scale = 6)
+
+ecm_at1_exp_plot_w_theme <- ecm_at1_exp_plot +
+        scale_color_distiller(palette = "Blues", direction = 1, name = "Expression") +
+        scale_y_discrete(limits=rev) +
+        theme(axis.title = element_blank(),
+              axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 12),
+              aspect.ratio = 1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              legend.text = element_text(size = 12),
+              legend.title = element_text(size = 12)
+        )
+
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=ecm_at1_exp_plot_w_theme, width=unit(10, "cm"), height=unit(5, "cm")))
+ggsave("./data/figures/epi/ecm_AT1.pdf",
+       egg::set_panel_size(p=ecm_at1_exp_plot_w_theme, width=unit(10, "cm"), height=unit(5, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6.5, "cm"), height=unit(3.5, "cm"))
+```
+
+```{r}
+VlnPlot(at1_seurat, "Vegfa", group.by = "timepoint") + scale_fill_manual(values = color_category_20) + theme(aspect.ratio = 0.8)
+
+ggsave("./data/figures/epi/at1_vegfa.pdf",
+       VlnPlot(at1_seurat, "Vegfa", group.by = "timepoint") + scale_fill_manual(values = color_category_20) + theme(aspect.ratio = 0.8),
+       dpi = 300, bg = "transparent",
+       width=unit(12, "cm"), height=unit(5.8, "cm"))
+```

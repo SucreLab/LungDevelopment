@@ -1,0 +1,122 @@
+---
+title: "scSEQ analysis of developing lung cells - revision"
+author: Nick Negretti
+date: 8/2/21
+output: rmarkdown::github_document
+---
+
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE, load-libraries}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+```
+
+# Load merged object
+```{r load-data}
+devo_data <- readRDS("./data/20210802_all_devo_data_list.rds")
+```
+
+# Run solo on P5_2
+```{r}
+writeAnnData <- function(seurat_obj, filename){
+  anndata::AnnData(X = t(GetAssayData(seurat_obj, slot = "data", assay = "RNA")),
+                   var = data.frame(gene = rownames(seurat_obj),
+                                    row.names = rownames(seurat_obj)),
+                   obs = data.frame(celltype = Idents(seurat_obj),
+                                    louvain = as.character(Idents(seurat_obj)),
+                                    timepoint = as.character(seurat_obj$timepoint),
+                                    condition = as.character(seurat_obj$condition),
+                                    doublet = as.character(seurat_obj$HTO_HTO_classification.global),
+                                    seq_run = as.character(seurat_obj$orig.ident),
+                                    row.names = colnames(seurat_obj))
+  )$write_h5ad(filename, compression = "gzip")
+}
+```
+
+```{r}
+for (name in names(devo_data)){
+  devo_data[[name]]$condition <- sapply(str_split(devo_data[[name]]$orig.ident, "_"), function(x){x[1]})
+  devo_data[[name]]$timepoint <- sapply(str_split(devo_data[[name]]$orig.ident, "_"), function(x){x[2]})
+  filename <- paste0("./data/split_seq_runs/", name)
+  if (!file.exists(paste0(filename, ".h5ad"))) { # Create if doesn't exist
+    if (name == "WT_E12") { next }
+    if (name != "WT_P5_2") { next } # Comment out to apply to everyone
+    print(filename)
+    writeAnnData(devo_data[[name]], paste0(filename, ".h5ad"))
+
+    tf_fac <- as.factor(as.vector(devo_data[[name]]$HTO_HTO_classification.global == "Doublet"))
+    if (levels(tf_fac)[1]  == "FALSE") {
+      levels(tf_fac) <- c("False", "True")
+    } else if (levels(tf_fac)[1]  == "TRUE") {
+      levels(tf_fac) <- c("True", "False")
+    }
+    write.table(tf_fac, file=paste0(filename, ".tsv"), quote=FALSE, sep='\t', col.names = FALSE, row.names = FALSE)
+
+    cellnames <- colnames(devo_data[[name]])
+    write.table(cellnames, file=paste0(filename, "_cellnames.tsv"), quote=FALSE, sep='\t', col.names = FALSE, row.names = FALSE)
+  }
+}
+```
+# Run hashsolo here
+
+
+
+
+# Apply solo scores and save
+```{r apply-labs}
+np <- reticulate::import("numpy")
+for (name in names(devo_data)){
+  if (name != "WT_P5_2") { next } # Comment out to apply to everyone
+  filename <- paste0("./data/solo_out/", name,"/preds.npy")
+  print(name)
+
+  prediction_vec <- as.vector(np$load(filename))
+  names(prediction_vec) <- colnames(devo_data[[name]])
+  devo_data[[name]]$solo <- as.vector(np$load(filename))
+}
+```
+
+
+```{r drop-doublets}
+
+
+for (obj_name in names(devo_data)){
+  print(obj_name)
+  if (obj_name == "WT_E12") { next }
+  if (obj_name == "WT_P5_2"){
+    devo_data[[obj_name]] <- devo_data[[obj_name]][,devo_data[[obj_name]]$solo == 0 ]
+  } else {
+    devo_data[[obj_name]] <- devo_data[[obj_name]][,devo_data[[obj_name]]$HTO_HTO_classification.global != "Doublet"]
+  }
+
+}
+
+saveRDS(devo_data, "./data/20210802_all_devo_data_list_nodoublet.rds", compress = "bzip2")
+```
+
+# Merge object and save
+```{r merge}
+
+devo_data <- Reduce(function(x,y){merge(x,y)}, devo_data)
+
+devo_data$condition <- "Unassigned"
+devo_data$timepoint <- "Unassigned"
+devo_data$condition <- sapply(str_split(devo_data$orig.ident, "_"), function(x){x[1]})
+devo_data$timepoint <- sapply(str_split(devo_data$orig.ident, "_"), function(x){x[2]})
+
+saveRDS(devo_data, "./data/20210802_merged_devo_data.rds", compress = "bzip2")
+```

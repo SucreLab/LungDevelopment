@@ -1,0 +1,362 @@
+---
+title: "scSEQ analysis of all lung cells"
+author: Nick Negretti
+date: 9/30/20
+output: rmarkdown::github_document
+---
+
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 12
+options(future.globals.maxSize=12*1024*1024^2)
+plan("multiprocess", workers = N_WORKERS)
+```
+
+```{r}
+merged_seurat <- readRDS("./data/20120802_merged_devodata_sct.rds")
+merged_seurat$timepoint <- ordered(as.factor(merged_seurat$timepoint),
+                                   c("E12", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14"))
+
+
+epi_fits_list <- readRDS("./data/20210831_epi_monocle_fits_list.rds")
+endo_fits_list <- readRDS("./data/20210831_endo_monocle_fits_list.rds")
+meso_fits_list <- readRDS("./data/20210831_meso_monocle_fits_list.rds")
+
+merged_fits_list <- c(epi_fits_list, endo_fits_list, meso_fits_list)
+```
+
+```{r}
+merged_seurat$timepoint_numeric <- merged_seurat$timepoint
+levels(merged_seurat$timepoint_numeric) <- 1:length(levels(merged_seurat$timepoint))
+merged_seurat$timepoint_numeric <- as.numeric(merged_seurat$timepoint_numeric)
+
+
+# Code from here: https://github.com/cole-trapnell-lab/monocle3/issues/502
+# create cell dataset, don't worry about the warning
+merged_cds <- monocle3::new_cell_data_set(
+  Seurat::GetAssayData(merged_seurat, assay='RNA', slot='data'),
+  cell_metadata=merged_seurat@meta.data
+)
+
+saveRDS(merged_cds, "./data/20210902_celldataset_merged_seurat.rds", compress = "bzip2")
+```
+
+```{r}
+
+filename <- "./data/20210831_merged_monocle_fits_list.rds"
+if (!file.exists(filename)) {
+  count_data <- GetAssayData(merged_seurat, assay = "RNA", slot='data')
+  timepoints <- unique(merged_seurat$timepoint)
+  merged_seurat_metadata <- merged_seurat@meta.data
+
+  merged_fits_list_w_timeavg <- future_lapply(names(merged_fits_list), function(name){
+    merged_fits_list[[name]]$celltype <- name
+
+    for (time in timepoints){
+      keep_cells <- merged_seurat_metadata$timepoint == time & merged_seurat_metadata$celltype == name
+      if (sum(keep_cells) > 1){
+        merged_fits_list[[name]][time] <- as.numeric(Matrix::rowMeans(count_data[,keep_cells])[merged_fits_list[[name]]$gene_id])
+      } else if (sum(keep_cells) == 1){
+        merged_fits_list[[name]][time] <- as.numeric(count_data[,keep_cells][merged_fits_list[[name]]$gene_id])
+      } else {
+        merged_fits_list[[name]][time] <- 0
+      }
+    }
+    return(merged_fits_list[[name]])
+  })
+  saveRDS(merged_fits_list_w_timeavg, filename, compress = "bzip2")
+} else {
+  merged_fits_list_w_timeavg <- readRDS(filename)
+}
+
+```
+
+```{r}
+merged_list <- merged_fits_list_w_timeavg %>% do.call(rbind, .) %>% filter(cells_expressing > 20 & sum_exp_level > 50 & q_value <= 0.05)
+merged_list$name <- paste0(merged_list$celltype, "_", merged_list$gene_id)
+
+# Drop E12 - weird things happen here.
+exp_mat <- as.matrix(merged_list[,c("E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14")])
+rownames(exp_mat) <- merged_list$name
+exp_mat <- exp_mat[rowSums(exp_mat) > 6,]  # Expression value of 6 timepoints,
+
+exp_mat_norm <- t(apply(exp_mat, 1, function(x)(x-min(x))/(max(x)-min(x))))
+
+exp_mat_dist <- dist(exp_mat_norm)
+exp_mat_hc <- hclust(exp_mat_dist)
+exp_hc_cut <- cutree(exp_mat_hc, k = 5)
+
+my_colour <- list(
+        exp_hc_cut = color_scanpy_default[1:5]
+)
+
+pheatmap::pheatmap(exp_mat_norm, cluster_cols = FALSE, cluster_rows = TRUE, show_rownames = FALSE, cutree_rows = 5,
+                   annotation_row = as.data.frame(exp_hc_cut),
+                   annotation_colors = my_colour)
+```
+
+```{r}
+
+genes_in_clust_1 <- exp_hc_cut[exp_hc_cut == 1]
+genes_in_clust_1
+
+```
+
+```{r}
+exp_mat_df <- as.data.frame(merged_list)
+rownames(exp_mat_df) <- exp_mat_df$name
+
+fulldata_df <- exp_mat_df[rownames(exp_mat),]
+
+fulldata_df$cluster <- exp_hc_cut
+
+
+out <- fulldata_df[,c("celltype", "gene_id", "cluster", "q_value", "cells_expressing",
+                      "E12", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14")]
+
+write.xlsx(out, "./data/figures/all/patterned_expression.xlsx")
+```
+
+```{r}
+saccular_specific <- out[out$cluster == 1,]
+```
+
+
+```{r}
+celltype <- "AT1"
+# gene_id must stay here
+timepoints <- c("gene_id", "E16", "E18", "P0", "P3", "P5", "P7", "P14")
+
+
+at1_saccular_genes_long <- melt(saccular_specific[saccular_specific$celltype == celltype,timepoints])
+highlight_genes <- c("Igfbp2", "Mmp14", "Ager")
+
+at1_plot <- ggplot(at1_saccular_genes_long[!at1_saccular_genes_long$gene_id %in% highlight_genes,]) +
+  geom_line(aes(group = gene_id, x = variable, y = value), color = 'grey') +
+  geom_line(data = at1_saccular_genes_long[at1_saccular_genes_long$gene_id %in% highlight_genes,],
+            aes(group = gene_id, x = variable, y = value, color = gene_id)) +
+  scale_y_continuous(trans = "log2") +
+  scale_color_manual(values = color_scanpy_default, name = "Gene") +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 12),
+        axis.text = element_text(color = "black", size = 12),
+        panel.background = element_rect(fill = "transparent", colour = "black"),
+        plot.background = element_rect(color = "transparent", fill = "transparent"),
+        panel.grid = element_blank(),
+        aspect.ratio = 1
+  ) +
+  ylab("Expression") +
+        annotation_logticks(base = 2, sides = "l", scaled = TRUE, mid = unit(0.05, "cm")) +
+        ggtitle(celltype)
+
+gridExtra::grid.arrange(egg::set_panel_size(p=at1_plot, width=unit(7, "cm"), height=unit(6, "cm")))
+
+ggsave("./data/figures/epi/at1_saccular_genes.pdf",
+       egg::set_panel_size(p=at1_plot, width=unit(7, "cm"), height=unit(6, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(4.5, "cm"), height=unit(3, "cm"))
+```
+
+
+```{r}
+celltype <- "AT2"
+# gene_id must stay here
+timepoints <- c("gene_id", "E16", "E18", "P0", "P3", "P5", "P7", "P14")
+
+
+at2_saccular_genes_long <- melt(saccular_specific[saccular_specific$celltype == celltype,timepoints])
+highlight_genes <- c("Sftpc", "Sftpd", "Cxcl15")
+
+at2_plot <- ggplot(at2_saccular_genes_long[!at2_saccular_genes_long$gene_id %in% highlight_genes,]) +
+        geom_line(aes(group = gene_id, x = variable, y = value), color = 'grey') +
+        geom_line(data = at2_saccular_genes_long[at2_saccular_genes_long$gene_id %in% highlight_genes,],
+                  aes(group = gene_id, x = variable, y = value, color = gene_id)) +
+        scale_y_continuous(trans = "log2", breaks = c(0.01, 0.5, 16, 512)) +
+        scale_color_manual(values = color_scanpy_default, name = "Gene") +
+        theme(axis.title.x = element_blank(),
+              axis.title.y = element_text(size = 12),
+              axis.text = element_text(color = "black", size = 12),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              panel.grid = element_blank(),
+              aspect.ratio = 1
+        ) +
+        ylab("Expression") +
+        annotation_logticks(base = 2, sides = "l", scaled = TRUE, mid = unit(0.05, "cm")) +
+        ggtitle(celltype)
+
+gridExtra::grid.arrange(egg::set_panel_size(p=at2_plot, width=unit(7, "cm"), height=unit(6, "cm")))
+
+ggsave("./data/figures/epi/at2_saccular_genes.pdf",
+       egg::set_panel_size(p=at2_plot, width=unit(7, "cm"), height=unit(6, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(4.6, "cm"), height=unit(3, "cm"))
+```
+
+
+```{r}
+celltype <- "aCap"
+# gene_id must stay here
+timepoints <- c("gene_id", "E16", "E18", "P0", "P3", "P5", "P7", "P14")
+
+
+aCap_saccular_genes_long <- melt(saccular_specific[saccular_specific$celltype == celltype,timepoints])
+highlight_genes <- c("Kdr", "Cldn5", "Ednrb")
+
+aCap_plot <- ggplot(aCap_saccular_genes_long[!aCap_saccular_genes_long$gene_id %in% highlight_genes,]) +
+        geom_line(aes(group = gene_id, x = variable, y = value), color = 'grey') +
+        geom_line(data = aCap_saccular_genes_long[aCap_saccular_genes_long$gene_id %in% highlight_genes,],
+                  aes(group = gene_id, x = variable, y = value, color = gene_id)) +
+        scale_y_continuous(trans = "log2", breaks = c(0.03, 0.5, 8)) +
+        scale_color_manual(values = color_scanpy_default, name = "Gene") +
+        theme(axis.title.x = element_blank(),
+              axis.title.y = element_text(size = 12),
+              axis.text = element_text(color = "black", size = 12),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              panel.grid = element_blank(),
+              aspect.ratio = 1
+        ) +
+        ylab("Expression") +
+        annotation_logticks(base = 2, sides = "l", scaled = TRUE, mid = unit(0.05, "cm")) +
+        ggtitle(celltype)
+
+gridExtra::grid.arrange(egg::set_panel_size(p=aCap_plot, width=unit(7, "cm"), height=unit(6, "cm")))
+
+ggsave("./data/figures/endo/aCap_saccular_genes.pdf",
+       egg::set_panel_size(p=aCap_plot, width=unit(7, "cm"), height=unit(6, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(4.5, "cm"), height=unit(3, "cm"))
+```
+
+```{r}
+celltype <- "gCap"
+# gene_id must stay here
+timepoints <- c("gene_id", "E16", "E18", "P0", "P3", "P5", "P7", "P14")
+
+
+gCap_saccular_genes_long <- melt(saccular_specific[saccular_specific$celltype == celltype,timepoints])
+highlight_genes <- c("Gpihbp1", "Cldn5", "Aqp1")
+
+gCap_plot <- ggplot(gCap_saccular_genes_long[!gCap_saccular_genes_long$gene_id %in% highlight_genes,]) +
+        geom_line(aes(group = gene_id, x = variable, y = value), color = 'grey') +
+        geom_line(data = gCap_saccular_genes_long[gCap_saccular_genes_long$gene_id %in% highlight_genes,],
+                  aes(group = gene_id, x = variable, y = value, color = gene_id)) +
+        scale_y_continuous(trans = "log2", breaks = c(0.03, 0.5, 8)) +
+        scale_color_manual(values = color_scanpy_default, name = "Gene") +
+        theme(axis.title.x = element_blank(),
+              axis.title.y = element_text(size = 12),
+              axis.text = element_text(color = "black", size = 12),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              panel.grid = element_blank(),
+              aspect.ratio = 1
+        ) +
+        ylab("Expression") +
+        annotation_logticks(base = 2, sides = "l", scaled = TRUE, mid = unit(0.05, "cm")) +
+        ggtitle(celltype)
+
+gridExtra::grid.arrange(egg::set_panel_size(p=gCap_plot, width=unit(7, "cm"), height=unit(6, "cm")))
+
+ggsave("./data/figures/endo/gCap_saccular_genes.pdf",
+       egg::set_panel_size(p=gCap_plot, width=unit(7, "cm"), height=unit(6, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(4.5, "cm"), height=unit(3, "cm"))
+```
+
+```{r}
+celltype <- "Myofibroblast"
+# gene_id must stay here
+timepoints <- c("gene_id", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14")
+
+
+MyoFB_saccular_genes_long <- melt(saccular_specific[saccular_specific$celltype == celltype,timepoints])
+highlight_genes <- c("Wnt5a", "Vim", "Agt")
+
+MyoFB_plot <- ggplot(MyoFB_saccular_genes_long[!MyoFB_saccular_genes_long$gene_id %in% highlight_genes,]) +
+        geom_line(aes(group = gene_id, x = variable, y = value), color = 'grey') +
+        geom_line(data = MyoFB_saccular_genes_long[MyoFB_saccular_genes_long$gene_id %in% highlight_genes,],
+                  aes(group = gene_id, x = variable, y = value, color = gene_id)) +
+        scale_y_continuous(trans = "log2", breaks = c(0.03, 0.5, 8)) +
+        scale_color_manual(values = color_scanpy_default, name = "Gene") +
+        theme(axis.title.x = element_blank(),
+              axis.title.y = element_text(size = 12),
+              axis.text = element_text(color = "black", size = 12),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              panel.grid = element_blank(),
+              aspect.ratio = 1
+        ) +
+        ylab("Expression") +
+        annotation_logticks(base = 2, sides = "l", scaled = TRUE, mid = unit(0.05, "cm")) +
+        ggtitle(celltype)
+
+gridExtra::grid.arrange(egg::set_panel_size(p=MyoFB_plot, width=unit(7, "cm"), height=unit(6, "cm")))
+
+ggsave("./data/figures/meso/MyoFB_saccular_genes.pdf",
+       egg::set_panel_size(p=MyoFB_plot, width=unit(7, "cm"), height=unit(6, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(4.5, "cm"), height=unit(3, "cm"))
+```
+
+
+```{r}
+celltype <- "Wnt2+ FB"
+# gene_id must stay here
+timepoints <- c("gene_id", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14")
+
+
+wnt2FB_saccular_genes_long <- melt(saccular_specific[saccular_specific$celltype == celltype,timepoints])
+highlight_genes <- c("Fn1", "Enpep", "Vegfd")
+
+wnt2FB_plot <- ggplot(wnt2FB_saccular_genes_long[!wnt2FB_saccular_genes_long$gene_id %in% highlight_genes,]) +
+        geom_line(aes(group = gene_id, x = variable, y = value), color = 'grey') +
+        geom_line(data = wnt2FB_saccular_genes_long[wnt2FB_saccular_genes_long$gene_id %in% highlight_genes,],
+                  aes(group = gene_id, x = variable, y = value, color = gene_id)) +
+        scale_y_continuous(trans = "log2", breaks = c(0.03, 0.5, 8)) +
+        scale_color_manual(values = color_scanpy_default, name = "Gene") +
+        theme(axis.title.x = element_blank(),
+              axis.title.y = element_text(size = 12),
+              axis.text = element_text(color = "black", size = 12),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              panel.grid = element_blank(),
+              aspect.ratio = 1
+        ) +
+        ylab("Expression") +
+        annotation_logticks(base = 2, sides = "l", scaled = TRUE, mid = unit(0.05, "cm")) +
+        ggtitle(celltype)
+
+gridExtra::grid.arrange(egg::set_panel_size(p=wnt2FB_plot, width=unit(7, "cm"), height=unit(6, "cm")))
+
+ggsave("./data/figures/meso/wnt2FB_saccular_genes.pdf",
+       egg::set_panel_size(p=wnt2FB_plot, width=unit(7, "cm"), height=unit(6, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(4.5, "cm"), height=unit(3, "cm"))
+```
+
+
+```{r}
+Idents(merged_seurat) <- merged_seurat$celltype
+```
+
+```{r}
+
+VlnPlot(merged_seurat, idents = "AT1", features = "Igfbp2", group.by = "timepoint")
+a <- 2
+```
+

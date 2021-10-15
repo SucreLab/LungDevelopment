@@ -1,0 +1,276 @@
+---
+title: "scSEQ analysis of the developing mesenchyme - revision"
+author: Nick Negretti
+date: 09/17/21
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung mesenchyme
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+```
+## Load data from merge and clean pipeline
+```{r}
+meso_from_split <- readRDS("./data/20210802_meso_devo_data_sct.rds")
+meso_from_split$HTO_HTO_classification.global[is.na(meso_from_split$HTO_HTO_classification.global)] <- "Undefined"
+meso <- subset(meso_from_split, HTO_HTO_classification.global != "Doublet")
+```
+
+```{r}
+meso <- cluster_pca_umap(meso, dims_umap = 1:30, dims_neighbors = 1:30, cluster_res = 1.8)
+```
+
+## UMAP and clustering
+```{r, fig.width = 12}
+# Make the tiempoints an ordered factor, so they are displayed consistantly
+meso$timepoint <- ordered(as.factor(meso$timepoint), unique(meso$timepoint))
+
+p_cluster <- DimPlot(meso, label = TRUE) + umap_theme() +
+        theme(aspect.ratio=1)
+p_time <- DimPlot(meso, group.by = "timepoint") + umap_theme() +
+        theme(aspect.ratio=1)
+
+p_cluster + p_time + plot_annotation("Mesenchyme")
+```
+
+```{r}
+marker_genes <- c("Hbb-bs", "Epcam", "Foxj1", "Scgb1a1", "Scgb3a2", "Abca3", "Hopx", "Col1a1", "Dcn", "Lum", "Acta2", "Wnt2", "Wnt5a", "Lgr6", "Pdgfra", "Pdgfrb", "Cspg4", "Wt1", "Pecam1", "Ccl21a", "Vwf", "Nrg1", "Plvap", "Car4", "Mki67", "Tnnt2", "Myl7", "Ascl1", "Ptprc")
+DotPlot(meso, features = marker_genes) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+```
+
+```{r}
+# Drop anything with Pecam1 or Epcam expression
+meso_sub <- subset(meso, idents = c(42, 47), invert = TRUE)
+```
+```{r}
+meso_sub <- cluster_pca_umap(meso_sub, dims_umap = 1:30, dims_neighbors = 1:30, cluster_res = 1.8)
+```
+
+```{r}
+marker_genes <- c("Hbb-bs", "Epcam", "Foxj1", "Scgb1a1", "Scgb3a2", "Abca3", "Hopx", "Col1a1", "Dcn", "Lum", "Acta2", "Wnt2", "Wnt5a", "Lgr6", "Pdgfra", "Pdgfrb", "Cspg4", "Wt1", "Pecam1", "Ccl21a", "Vwf", "Nrg1", "Plvap", "Car4", "Mki67", "Tnnt2", "Myl7", "Ascl1", "Ptprc")
+DotPlot(meso_sub, features = marker_genes) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+```{r}
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+
+filename <- "./data/20210802_meso_devo_data_sct_sub.rds"
+if (!file.exists(filename)) {
+  meso_sub <- SCTransform(meso_sub, variable.features.n = 2000,
+                          batch_var = "orig.ident",
+                          conserve.memory = TRUE,
+                          vars.to.regress = c("percent.mt"),
+                          method = 'glmGamPoi',
+                          ncells = NULL)
+  meso_sub <- cluster_pca_umap(meso_sub, dims_umap = 1:15, dims_neighbors = 1:15, cluster_res = 1.2)
+  saveRDS(meso_sub, filename, compress = "bzip2")
+} else {
+  meso_sub <- readRDS(filename)
+}
+```
+
+
+```{r}
+marker_genes <- c("Hbb-bs", "Epcam", "Foxj1", "Scgb1a1", "Scgb3a2", "Abca3", "Hopx", "Col1a1", "Dcn", "Lum", "Acta2", "Wnt2", "Wnt5a", "Lgr6", "Pdgfra", "Pdgfrb", "Cspg4", "Wt1", "Pecam1", "Ccl21a", "Vwf", "Nrg1", "Plvap", "Car4", "Mki67", "Tnnt2", "Myl7", "Ascl1", "Ptprc")
+DotPlot(meso_sub, features = marker_genes) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+```{r}
+marker_genes <- c("Wnt2", "Macf1", # Wnt2 fibroblasts 0
+                  "Tgfbi", "Wnt5a", # Myofibroblasts 1
+                  "Dcn", "Col1a1", # Adventitial fibroblast 2
+                  "Top2a", "Mki67", # Prenatal Wnt2 3
+                  "Cspg4", "Cox4i2", # Pericyte 4
+                  "Ednrb", "Pdgfra", # Prenatal myo 5
+                  "Wt1", "Upk3b", # Mesothelium 6
+                  "Eln", "Acta2", # Smooth muscle 7
+                  "Mpz", "Mal", # Neuron 8
+                  "Tnnt2", "Actc1" # Cardiomyocyte
+)
+DotPlot(meso_sub, features = marker_genes) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+```{r, fig.width = 12}
+p_cluster <- DimPlot(meso_sub, label = TRUE) + umap_theme() +
+        theme(aspect.ratio=1)
+p_time <- DimPlot(meso_sub, group.by = "timepoint") + umap_theme() +
+        theme(aspect.ratio=1)
+
+p_cluster + p_time + plot_annotation("Mesenchyme")
+a <- 18
+```
+
+
+```{r}
+meso_sub_reduced_res <- cluster_pca_umap(meso_sub, dims_umap = 1:15, dims_neighbors = 1:15, cluster_res = 0.6)
+```
+
+```{r, fig.width = 12}
+p_cluster <- DimPlot(meso_sub_reduced_res, label = TRUE) + umap_theme() +
+        theme(aspect.ratio=1)
+p_time <- DimPlot(meso_sub_reduced_res, group.by = "timepoint") + umap_theme() +
+        theme(aspect.ratio=1)
+
+p_cluster + p_time + plot_annotation("Mesenchyme")
+```
+
+```{r}
+meso_sub_subc <- FindSubCluster(meso_sub_reduced_res, 11, graph.name = "SCT_snn", subcluster.name = "sub.cluster", resolution = 0.1)
+meso_sub_subc$sub.cluster <- as.factor(meso_sub_subc$sub.cluster)
+levels(meso_sub_subc$sub.cluster) <- 1:length(levels(meso_sub_subc$sub.cluster))
+Idents(meso_sub_subc) <- meso_sub_subc$sub.cluster
+
+meso_sub_subc <- FindSubCluster(meso_sub_subc, 24, graph.name = "SCT_snn", subcluster.name = "sub.cluster", resolution = 0.1)
+meso_sub_subc$sub.cluster <- as.factor(meso_sub_subc$sub.cluster)
+levels(meso_sub_subc$sub.cluster) <- 1:length(levels(meso_sub_subc$sub.cluster))
+Idents(meso_sub_subc) <- meso_sub_subc$sub.cluster
+
+meso_sub_subc <- FindSubCluster(meso_sub_subc, 4, graph.name = "SCT_snn", subcluster.name = "sub.cluster", resolution = 0.1)
+meso_sub_subc$sub.cluster <- as.factor(meso_sub_subc$sub.cluster)
+levels(meso_sub_subc$sub.cluster) <- 1:length(levels(meso_sub_subc$sub.cluster))
+Idents(meso_sub_subc) <- meso_sub_subc$sub.cluster
+```
+
+
+```{r, fig.width = 12}
+p_cluster <- DimPlot(meso_sub_subc, label = TRUE, group.by = "sub.cluster") + umap_theme() +
+        theme(aspect.ratio=1)
+p_time <- DimPlot(meso_sub_subc, group.by = "timepoint") + umap_theme() +
+        theme(aspect.ratio=1)
+
+p_cluster + p_time + plot_annotation("Mesenchyme")
+```
+
+
+
+```{r}
+marker_genes <- c("Wnt2", "Macf1", # Wnt2 fibroblasts 0
+                  "Tgfbi", "Wnt5a", # Myofibroblasts 1
+                  "Dcn", "Col1a1", # Adventitial fibroblast 2
+                  "Top2a", "Mki67", # Prenatal Wnt2 3
+                  "Cspg4", "Cox4i2", # Pericyte 4
+                  "Ednrb", "Pdgfra", # Prenatal myo 5
+                  "Wt1", "Upk3b", # Mesothelium 6
+                  "Eln", "Acta2", # Smooth muscle 7
+                  "Mpz", "Mal", # Neuron 8
+                  "Tnnt2", "Actc1" # Cardiomyocyte
+)
+DotPlot(meso_sub_subc, features = marker_genes) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+```{r}
+
+meso_relabel <- meso_sub_subc
+meso_relabel$louvain <- as.factor(meso_sub_subc$sub.cluster)
+meso_relabel$celltype <- as.factor(meso_sub_subc$sub.cluster)
+
+# ?: 23, 31..eh, 35, 48
+idxes <- levels(meso_relabel$celltype)
+labels <- rep("Wnt2+ FB", length(levels(meso_relabel$celltype)))
+labels[idxes %in% c(6, 7, 8, 10, 16, 21, 24, 26, 27, 28)] <- "Myofibroblast"
+labels[idxes %in% c(2, 18)] <- "Prolif. Wnt2+ FB"
+labels[idxes %in% c(12)] <- "Prolif. Myo FB"
+labels[idxes %in% c(5, 20)] <- "Adventitial FB"
+labels[idxes %in% c(3)] <- "Pericyte"
+labels[idxes %in% c(19)] <- "Mesothelium"
+labels[idxes %in% c(25)] <- "Smooth Muscle"
+labels[idxes %in% c(29)] <- "Cardiomyocyte"
+
+levels(meso_relabel$celltype) <- labels
+
+```
+
+
+```{r, fig.width = 12}
+p_cluster <- DimPlot(meso_relabel, group.by = "celltype") + umap_theme() +
+        theme(aspect.ratio=1)
+p_time <- DimPlot(meso_relabel, group.by = "timepoint") + umap_theme() +
+        theme(aspect.ratio=1)
+
+p_cluster + p_time + plot_annotation("Mesenchyme")
+```
+
+
+
+```{r}
+filename <- "./data/20210802_meso_labeled.rds"
+if (!file.exists(filename)) {
+  saveRDS(meso_relabel, filename, compress = "bzip2")
+} else {
+  meso_relabel <- readRDS(filename)
+}
+```
+
+
+```{r}
+N_WORKERS <- 8
+plan("multiprocess", workers = N_WORKERS)
+filename <- "./data/20210802_meso_louvain_markers.rds"
+if (!file.exists(filename)) {
+  meso_subcluster_markers <- parallelFindAllMarkers(meso_relabel)
+  names(meso_subcluster_markers) <- levels(Idents(meso_relabel))
+  saveRDS(meso_subcluster_markers, filename)
+} else {
+  meso_subcluster_markers <- readRDS(filename)
+}
+
+
+wb_markers_names <- levels(Idents(meso_relabel))
+wb_markers <- createWorkbook()
+for (idx in seq_along(wb_markers_names)){
+  addWorksheet(wb_markers, wb_markers_names[idx])
+  writeData(wb_markers, wb_markers_names[idx], meso_subcluster_markers[[idx]], rowNames = TRUE)
+}
+saveWorkbook(wb_markers, file = "./data/20210802_meso_louvain_markers.xlsx", overwrite = TRUE)
+
+
+## Markers by celltype
+meso_relabel$celltype <- ordered(meso_relabel$celltype, c("Prolif. Wnt2+ FB",
+                                                          "Wnt2+ FB",
+                                                          "Prolif. Myo FB",
+                                                          "Myofibroblast",
+                                                          "Adventitial FB",
+                                                          "Pericyte",
+                                                          "Mesothelium",
+                                                          "Smooth Muscle",
+                                                          "Cardiomyocyte"
+))
+
+Idents(meso_relabel) <- meso_relabel$celltype
+filename <- "./data/20210802_meso_markers_celltype.rds"
+if (!file.exists(filename)) {
+  meso_celltype_markers <- parallelFindAllMarkers(meso_relabel)
+  names(meso_celltype_markers) <- levels(Idents(meso_relabel))
+  saveRDS(meso_celltype_markers, filename)
+} else {
+  meso_celltype_markers <- readRDS(filename)
+}
+
+
+wb_markers_names <- levels(Idents(meso_relabel))
+wb_markers <- createWorkbook()
+for (idx in seq_along(wb_markers_names)){
+  addWorksheet(wb_markers, wb_markers_names[idx])
+  writeData(wb_markers, wb_markers_names[idx], meso_celltype_markers[[idx]], rowNames = TRUE)
+}
+saveWorkbook(wb_markers, file = "./data/20210802_meso_markers_celltype.xlsx", overwrite = TRUE)
+```
+

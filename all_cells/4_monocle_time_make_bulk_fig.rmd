@@ -1,0 +1,169 @@
+---
+title: "scSEQ analysis of all lung cells"
+author: Nick Negretti
+date: 9/30/20
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung epithelium
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 12
+options(future.globals.maxSize=12*1024*1024^2)
+plan("multiprocess", workers = N_WORKERS)
+
+```
+
+```{r}
+merged_seurat <- readRDS("./data/20120802_merged_devodata_sct.rds")
+merged_seurat$timepoint <- ordered(as.factor(merged_seurat$timepoint),
+                                   c("E12", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14"))
+```
+
+```{r}
+
+merged_meso <- subset(merged_seurat, bulk_celltype == "Mesenchymal")
+merged_endo <- subset(merged_seurat, bulk_celltype == "Endothelial")
+merged_epi <- subset(merged_seurat, bulk_celltype == "Epithelial")
+
+```
+
+
+
+```{r}
+
+filt_fits_epi <- readRDS("./data/20210902_merged_filt_fits_Epi.rds")
+filt_fits_endo <- readRDS("./data/20210902_merged_filt_fits_Endo.rds")
+filt_fits_meso <- readRDS("./data/20210902_merged_filt_fits_Meso.rds")
+
+```
+
+```{r}
+epi_cells_expressing %<-% (Matrix::rowSums(GetAssayData(merged_epi, assay = "RNA", slot='data') > 0)[filt_fits_epi$gene_id])
+endo_cells_expressing %<-% (Matrix::rowSums(GetAssayData(merged_endo, assay = "RNA", slot='data') > 0)[filt_fits_endo$gene_id])
+meso_cells_expressing %<-% (Matrix::rowSums(GetAssayData(merged_meso, assay = "RNA", slot='data') > 0)[filt_fits_meso$gene_id])
+
+filt_fits_endo$cells_expressing <- endo_cells_expressing
+filt_fits_meso$cells_expressing <- meso_cells_expressing
+filt_fits_epi$cells_expressing <- epi_cells_expressing
+```
+
+```{r}
+genes_assoc_time_epi %<-% (filt_fits_epi %>% filter(cells_expressing > 20 & q_value <= 0.05))
+genes_assoc_time_endo %<-% (filt_fits_endo %>% filter(cells_expressing > 20 & q_value <= 0.05))
+genes_assoc_time_meso %<-% (filt_fits_meso %>% filter(cells_expressing > 20 & q_value <= 0.05))
+resolve(list(genes_assoc_time_epi, genes_assoc_time_endo, genes_assoc_time_meso))
+
+```
+
+```{r}
+exp_epi <- AverageExpression(merged_epi, features = genes_assoc_time_epi$gene_id, group.by = "timepoint")[["SCT"]]
+exp_epi_filt <- exp_epi[Matrix::rowSums(exp_epi > 1) > 4,] # exp_epiressed at a value of 1 in > 4 timepoints
+exp_epi_norm <- t(apply(log1p(exp_epi_filt), 1, function(x)(x-min(x))/(max(x)-min(x))))
+
+exp_epi_mat_dist <- dist(exp_epi_norm)
+exp_epi_mat_hc <- hclust(exp_epi_mat_dist)
+exp_epi_hc_cut <- cutree(exp_epi_mat_hc, k = 4)
+
+my_colour <- list(
+  exp_epi_hc_cut = color_scanpy_default[1:4]
+)
+
+pheatmap::pheatmap(exp_epi_norm, cluster_cols = FALSE, cluster_rows = TRUE, show_rownames = FALSE, cutree_rows = 4,
+                   color = viridis(256, begin = 0, end = 1, alpha = 1),
+                   width = 4, height = 8, filename =  "./data/figures/all/monocle_realtime/epi_time_pheatmap.png"
+)
+
+exp_epi_mat_df <- as.data.frame(exp_epi_filt)
+
+
+
+exp_epi_mat_df$cluster <- exp_epi_hc_cut
+exp_epi_mat_df$gene_id <- rownames(exp_epi_mat_df)
+
+out <- exp_epi_mat_df[,c("gene_id", "cluster",
+                         "E12", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14")]
+
+write.xlsx(out[exp_epi_mat_hc$order,], "./data/figures/all/monocle_realtime/epi_patterned_exp_epiression.xlsx", overwrite = TRUE)
+
+```
+
+
+```{r}
+exp_meso <- AverageExpression(merged_meso, features = genes_assoc_time_meso$gene_id, group.by = "timepoint")[["SCT"]]
+exp_meso_filt <- exp_meso[Matrix::rowSums(exp_meso > 1) > 4,] # exp_mesoressed at a value of 1 in > 4 timepoints
+exp_meso_norm <- t(apply(log1p(exp_meso_filt), 1, function(x)(x-min(x))/(max(x)-min(x))))
+
+exp_meso_mat_dist <- dist(exp_meso_norm)
+exp_meso_mat_hc <- hclust(exp_meso_mat_dist)
+exp_meso_hc_cut <- cutree(exp_meso_mat_hc, k = 4)
+
+my_colour <- list(
+  exp_meso_hc_cut = color_scanpy_default[1:4]
+)
+
+#heatmaply::heatmaply(exp_meso_norm, Colv = FALSE, Rowv = exp_meso_mat_hc)
+pheatmap::pheatmap(exp_meso_norm, cluster_cols = FALSE, cluster_rows = TRUE, show_rownames = FALSE, cutree_rows = 4,
+                   color = viridis(256, begin = 0, end = 1, alpha = 1),
+                   width = 4, height = 8, filename =  "./data/figures/all/monocle_realtime/meso_time_pheatmap.png"
+)
+
+exp_meso_mat_df <- as.data.frame(exp_meso_filt)
+
+
+exp_meso_mat_df$cluster <- exp_meso_hc_cut
+exp_meso_mat_df$gene_id <- rownames(exp_meso_mat_df)
+
+out <- exp_meso_mat_df[,c("gene_id", "cluster",
+                         "E12", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14")]
+
+write.xlsx(out[exp_meso_mat_hc$order,], "./data/figures/all/monocle_realtime/meso_patterned_exp_mesoression.xlsx", overwrite = TRUE)
+
+```
+
+```{r}
+exp_endo <- AverageExpression(merged_endo, features = genes_assoc_time_endo$gene_id, group.by = "timepoint")[["SCT"]]
+exp_endo_filt <- exp_endo[Matrix::rowSums(exp_endo > 1) > 4,] # exp_endoressed at a value of 1 in > 4 timepoints
+exp_endo_norm <- t(apply(log1p(exp_endo_filt), 1, function(x)(x-min(x))/(max(x)-min(x))))
+
+exp_endo_mat_dist <- dist(exp_endo_norm)
+exp_endo_mat_hc <- hclust(exp_endo_mat_dist)
+exp_endo_hc_cut <- cutree(exp_endo_mat_hc, k = 4)
+
+my_colour <- list(
+  exp_endo_hc_cut = color_scanpy_default[1:4]
+)
+
+#heatmaply::heatmaply(exp_endo_norm, Colv = FALSE, Rowv = exp_endo_mat_hc)
+pheatmap::pheatmap(exp_endo_norm, cluster_cols = FALSE, cluster_rows = TRUE, show_rownames = FALSE, cutree_rows = 4,
+                   color = viridis(256, begin = 0, end = 1, alpha = 1),
+                   width = 4, height = 8, filename =  "./data/figures/all/monocle_realtime/endo_time_pheatmap.png"
+)
+
+exp_endo_mat_df <- as.data.frame(exp_endo_filt)
+
+
+exp_endo_mat_df$cluster <- exp_endo_hc_cut
+exp_endo_mat_df$gene_id <- rownames(exp_endo_mat_df)
+
+out <- exp_endo_mat_df[,c("gene_id", "cluster",
+                          "E12", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14")]
+
+write.xlsx(out[exp_endo_mat_hc$order,], "./data/figures/all/monocle_realtime/endo_patterned_exp_endoression.xlsx", overwrite = TRUE)
+
+```
+

@@ -1,0 +1,528 @@
+---
+title: "scSEQ analysis of the developing mesenchyme"
+author: Nick Negretti
+date: 11/17/20
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung mesenchyme
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+```
+
+```{r}
+meso_relabel <- readRDS("./data/20210802_meso_labeled.rds")
+
+## Markers by celltype
+meso_relabel$celltype <- ordered(meso_relabel$celltype, c("Prolif. Wnt2+ FB",
+                                                          "Wnt2+ FB",
+                                                          "Prolif. Myo FB",
+                                                          "Myofibroblast",
+                                                          "Adventitial FB",
+                                                          "Pericyte",
+                                                          "Mesothelium",
+                                                          "Smooth Muscle",
+                                                          "Cardiomyocyte"
+))
+
+```
+
+```{r}
+writeAnnData <- function(seurat_obj, filename){
+  anndata::AnnData(X = t(GetAssayData(seurat_obj, slot = "data", assay = "SCT")),
+                   var = data.frame(gene = rownames(seurat_obj),
+                                    row.names = rownames(seurat_obj),
+                                    highly_variable = rownames(seurat_obj) %in% VariableFeatures(seurat_obj)
+                   ),
+                   obs = data.frame(celltype = as.character(seurat_obj$celltype),
+                                    louvain = as.character(seurat_obj$seurat_clusters),
+                                    timepoint = as.character(seurat_obj$timepoint),
+                                    condition = as.character(seurat_obj$condition),
+                                    row.names = colnames(seurat_obj)),
+                   obsm = list(X_umap = matrix(Embeddings(seurat_obj, reduction = "umap"), ncol = 2))
+  )$write_h5ad(filename, compression = "gzip")
+}
+
+filename <- "./data/20210802_meso_relabel.h5ad"
+if (!file.exists(filename)) { # Create if doesn't exist
+  writeAnnData(meso_relabel, filename)
+}
+```
+
+```{r}
+p_cluster_celltype <- DimPlot(meso_relabel, group.by = "celltype") + umap_theme() +
+        scale_colour_manual(name = "Cluster", values = color_category_20) +
+        theme(aspect.ratio=1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),)
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=p_cluster_celltype, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/meso/meso_labeled_umap.png",
+       egg::set_panel_size(p=p_cluster_celltype, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+
+```
+
+
+```{r}
+p_timepoint <- DimPlot(meso_relabel, group.by = "timepoint") + umap_theme() +
+        scale_colour_manual(name = "Timepoint", values = color_category_20) +
+        theme(aspect.ratio=1,
+              legend.text = element_text(size = 12),
+              legend.title = element_text(size = 12),
+              plot.title = element_blank(),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent")
+        )
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=p_timepoint, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/meso/meso_labeled_umap_timepoint.png",
+       egg::set_panel_size(p=p_timepoint, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+```
+
+
+## UMAP and clustering
+```{r, fig.width = 12}
+plan("sequential")
+
+# Make the tiempoints an ordered factor, so they are displayed consistantly
+meso_relabel$timepoint <- ordered(as.factor(meso_relabel$timepoint), unique(meso_relabel$timepoint))
+
+p_time <- DimPlot(meso_relabel, group.by = "timepoint") + umap_theme() +
+        scale_colour_manual(name = "Timepoint", values = color_scanpy_default)+
+        theme(aspect.ratio=1) +
+        theme(legend.text=element_text(size=14),
+              legend.title=element_text(size=14),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"))
+
+gridExtra::grid.arrange(egg::set_panel_size(p=p_time, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/meso/supp_umap.png",
+       egg::set_panel_size(p=p_time, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+
+```
+
+## Use known marker genes to determine the identity of the clusters
+
+```{r}
+
+
+marker_genes <- c("Top2a", "Mki67", # Progenitors
+                  "Wnt2", "Macf1", # Wnt2 fibroblasts 0
+                  "Tgfbi", "Wnt5a", # Myofibroblasts 1
+                  "Dcn", "Col1a1", # Adventitial fibroblast 2
+                  "Cspg4", "Cox4i2", # Pericyte 4
+                  "Wt1", "Upk3b", # Mesothelium 6
+                  "Eln", "Acta2", # Smooth muscle 7
+                  "Tnnt2", "Actc1" # Cardiomyocyte
+)
+
+meso_marker_plot <- DotPlot(meso_relabel, features = marker_genes, group.by = "celltype", dot.scale = 7.5, col.min = 0)
+
+meso_marker_plot_w_theme <- meso_marker_plot +
+        scale_color_distiller(palette = "Blues", direction = 1, name = "Expression") +
+        scale_y_discrete(limits=rev) +
+        theme(axis.title = element_blank(),
+              axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 12),
+              aspect.ratio = 1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              legend.text = element_text(size = 12),
+              legend.title = element_text(size = 12)
+        )
+
+gridExtra::grid.arrange(egg::set_panel_size(p=meso_marker_plot_w_theme, width=unit(10, "cm"), height=unit(7, "cm")))
+ggsave("./data/figures/meso/dotplot_markers.pdf",
+       egg::set_panel_size(p=meso_marker_plot_w_theme, width=unit(10, "cm"), height=unit(7, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(7, "cm"), height=unit(4, "cm"))
+
+
+```
+
+
+## Jaccard Indices
+
+```{r}
+# Single-Cell Deconvolution of Fibroblast Heterogeneity in Mouse Pulmonary Fibrosis
+# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5908225/
+
+# List from Mouse E16.5 scRNA-seq https://research.cchmc.org/pbge/lunggens/celltype_E16_p3.html
+
+pmp_list_e16 <- c("Bub1", "H2afv", "H2afz", "Hmgb2", "Mki67", "Smc2", "Stmn1", "Top2a", "Tubb6", "Tuba1b", "Tubb5", "Kif22", "Nusap1", "Prdx4", "Rbp1", "Sdc2", "Hmgn2", "Smc4", "Birc5", "Ccna2", "Cenpe", "Fam64a", "Ska2", "Prc1", "Shcbp1", "2810417H13Rik", "Cenpa", "Ccnb1", "Cks2", "Aurka", "Hmmr", "Hist1h2ao", "Cdk1", "Cdca3", "Mfap2", "Spc25", "Rrm1", "Ngfrap1", "Ube2c", "Vcan", "Mad2l1", "Kif15", "Ilf3", "Tpx2", "Mdk", "Ckap2l", "2700099C18Rik", "Nexn", "Kif11", "Snai2", "Spc24", "Calm2", "Tuba1a", "Tubb4b", "Kif23", "Cenpf", "Spag5", "Cdca2", "Ncapg", "2700094K13Rik", "Nucks1", "Kpna2", "Ttk", "Cenpm", "Ncaph", "Smc1a", "Uqcr10", "Tbx3", "Mis18bp1", "Hnrnpa1", "Casc5", "Pbk", "Adh1", "Ccnb2", "Anln", "Kif20b", "Nsl1", "Cenpi", "Cenpq", "1190002F15Rik", "Tacc3", "Ckap2", "Ckap5", "Tk1", "Iigp1", "Incenp", "Nde1", "Tshz1", "Cks1b", "Ccnf", "Hist1h2ae", "Fbxo5", "Tbx4", "Neil3", "Ndc80", "Arl6ip1", "Ezh2", "Ccdc34", "Hist1h4d", "Gas2l3", "Anp32e", "Smc6", "C330027C09Rik", "Cenpl", "Nutf2-ps1", "Rrm2", "Fkbp7", "Hmgn5", "Kif4", "Atad2", "Rpa3", "Myh10", "Tmpo", "Ift74", "Kif20a", "Plk1", "Ska3", "Cdc45", "Mxd3", "Troap", "Cdc25c", "Eri2", "Cep89", "Ncapg2", "Cdc16", "Fbln1", "Aurkb", "Snrpd3", "G3bp1", "Ilf2", "Sgol2a", "Tomm40", "Vsnl1", "Dek", "Cdc123", "Nasp", "H2afx", "Ing1", "Kif2c", "Hist1h1e", "Cdkn2d", "Kpnb1", "Kntc1", "Bub3", "Lsm3", "Birc2", "Whsc1l1", "Brip1", "Psip1", "Fam83d", "D17H6S56E-5", "Hoxb3", "Gm6793", "Exosc8", "Hoxb5", "Clspn", "Fkbp3", "Spag7", "Hist1h2ap", "Adk", "Bub1b", "Parp2", "Naa38", "Trim59", "Tyms", "Knstrn", "Adh5", "Nuf2", "Asf1b", "Dpm3", "Wdr90", "Ncam1", "Cenpk", "BC002163", "Rfc4", "Rpa1", "Haus4", "Chsy1", "Dctpp1", "Hnrnpa3", "6430706D22Rik", "Carhsp1", "Dkk3", "Chst2", "4930579G24Rik", "Lgals1", "Ep400", "Cdc42ep4", "Rorb", "Dctn6", "Ssbp3", "Esco2", "Dhx9", "Mdm1", "S1pr3", "Cops3", "Rhno1", "AI427809", "Car2", "Bach2", "Mtbp", "Espl1", "Snrpf", "Dnajc8", "Cdk5rap2", "Tmed1", "Gmnn", "Enc1", "Pttg1", "Gstm5", "Parpbp", "Runx1t1", "Prim1", "Cdca4", "Cmss1", "Pfdn6", "Egfem1", "Dyrk1a", "Ddx1", "Ska1", "Wbp1", "Haus7", "Hjurp", "Pabpn1", "Nudt2", "Dnajc9", "Efemp2", "Mrpl49", "Rnaseh2b", "Smchd1", "Trp53bp1", "Csrp2", "Pcdh18", "Gins3", "Srsf7", "Tbck", "Cdkn3", "3110043O21Rik", "Smarca4", "Dut", "Lnp", "Frem1", "Tubg1", "Cdc7", "Pmf1", "Htatsf1", "Ncapd2", "Ranbp1", "Taf1d", "Rad21", "Stil", "Bzw2", "Ptpdc1", "Cenpw", "Oip5", "Mbd2", "A730008H23Rik", "Fam173a", "4931428F04Rik", "Sec13", "Dnm1", "Melk", "Ankrd32", "Bcl10", "Syce2", "P3h3", "Tmem132c", "Brd8", "Zfp367", "Hist1h2ab", "Aaas", "Oxct1", "Sgol1", "Cdca8", "C030039L03Rik", "Lrrn3", "Rcbtb2", "Taf6", "1700021F05Rik", "Aspm", "Prkd3", "Btrc", "Clasp1", "Stra13", "Ndufaf7", "Pbx1", "Mcm4", "Cnot1", "Tmem86a", "Mre11a", "Fam76b", "Ccdc186", "Epha3", "Pole", "Smarcc1", "Mrto4", "Flnc", "Wdhd1", "Tcaf1", "Rfx1", "Pwp1", "Pop7", "Chchd5", "2610020C07Rik", "Gjc1", "Ndufs5", "Ppp1r3c", "Fxyd6", "Bora", "Oaf", "Uhrf1", "Epb4.1l2", "Cdc20", "Ddx42", "Mrpl42", "Gnpat", "Mrpl39", "Psmd10", "Pitrm1", "Lama4", "Chaf1a", "Emc4", "Aars", "Basp1", "Cenpo", "Nab2", "Fgf7", "Ankrd11", "Caml", "Kdm8", "Arhgap11a", "Kifap3", "Efs", "Ptov1", "Ube2t", "9430016H08Rik", "Gpatch4", "Polh", "BC065397", "Rnaseh2c", "Rps19bp1", "Evi5", "Timm17b", "Ube2v2", "Camk1g", "Tceal1", "Efcab11", "Exog", "Gsg2", "Cask", "Baz1b", "Cenpp", "Dnmt1", "Lef1", "Tagap1", "Mrpl51", "Pdzd11", "Zwint", "Sephs1", "6030408B16Rik", "Tuba1c", "Nup37", "Ap1m1", "Fbxo21", "Ccdc77", "Pdgfra", "Trmu", "Crebbp", "Sumo1", "Car13", "Gli3", "Apitd1", "Cdc42ep3", "Ednra", "Scnm1", "Ddah2", "Cdc23", "Znhit3", "E2f8", "Zfhx4", "AW549542", "Tmem231", "Ercc1", "Sfxn4", "Kat8", "Nrcam", "Hyou1", "Taf12", "Magt1", "Mkrn2", "Rtca", "Tdp1", "E2f5", "Hist1h1b", "Xrcc2", "Gtse1", "Tnnt1", "Ect2", "Gpatch2l", "Copb2", "Apbb1", "Dedd", "Tmem261", "Ticrr", "Pramef8", "Wasf1", "Tead2", "Wnt2", "Sapcd1", "Cic", "Rab26os", "Casp3", "Ankle2", "Gid8", "Nfatc4", "Slx4", "Iqgap3", "Pop4", "Ndufaf2", "Hdgfrp3", "Cby1", "Bcat2", "AW554918", "Snai1", "Txndc12", "Vars", "Eme1", "Cenpn", "Cyp2d22", "Ogg1", "Dsn1", "Lars", "Cfap36", "Ipo5", "Psmd3", "Ank2", "Dgcr8", "Acap2", "Trappc13", "Racgap1", "Capn6", "Ckb", "Josd2", "Phb2", "Kif18a", "Acp2", "Man2c1", "Iqcb1", "Ssrp1", "Alg3", "Cep112", "Nolc1", "Tia1")
+
+myo_list_e16 <- c("Cd248","Ednrb","Mfap2","Nfib","Nrep","Spin1","Tgfbi","Igf1","Col1a2","Cald1","Robo1","H19","Fstl1","Skil","Bgn","Enc1","Ckb","Mgp","Meis1","Adgrg6","Lpp","Kif1b","Bace1","Slc25a4","Pdgfra","Col3a1","Arf4","Rgs2","Foxf1","Tbx5","Nnat","Pdlim3","Actn1","Tnfrsf19","Mmp2","Gsk3b","Sparcl1","Gypc","Zeb2","Ptprs","Lgals1","Iigp1","Myl9","Itga9","Egfem1","Sema6d","Grb10","Tshz1","Ncald","Acta2","Pde5a","Tsc22d1","Entpd1","Ttyh2","Etv1","Wnt5a","Dse","Nexn","Brd3","Runx1t1","Mllt3","Sin3b","Lsp1","Ghr","Fgf7","Ak1","Scara5","Palld","Tet2","Ddr2","Bcl2","Serpine2","Net1","Ccdc6","Tmem176b","Ahnak","Col6a1","Myocd","Flna","Rerg","Tbx4","Col9a2","Smpx","Nr3c1","Mau2","Ism1","Mpzl1","Crispld2","Atp2b1","Loxl2","Cxx1c","Ttc3","Tagln","Parva","Hhip","6330403K07Rik","Tnrc6b","Dnm3os","P2ry14","Ctnnbl1","Col27a1","Rpa1","Peli2","Eif1b","Ccdc47","Zkscan3","Decr2","Tgfb1i1","Mxra8","Sms","Dnmt3a","AW549542","Fgf18","Abat","Gm3414","Kank1","Lmna","Kdm5b","Ccndbp1","Npr2","Kansl1","Klhl42","Myh11","Zfp9","Calu","Synpo2","Ptbp2","Akap13","Antxr1","Gng12","Ndufa6","Fam195b","Adamts6","Tpm1","Smek2","Map1b","Hbp1","Ypel5","Adamts10","Uvssa","Nudt3","Triap1","Tmem57","Sertad4","Mylk","Anxa6","Casp6","Ubr5","Smtnl2","Abi3bp","2010111I01Rik","Sfrp2","Tcf7","Lcorl","Spry1","Gpc1","Chd6","Actg2","Tmtc1","Cldn1","Wrb","2210013O21Rik","Rbms3","Pmepa1","Spon2","Adgrg2","Ist1","Fbn1","Ndufa11","Api5","Ap3s1","Angptl2","Myl6","Bmpr1a","Thbs1","Lef1","Mir143hg","Kmt2e","Rbm5","Rgs5","Laptm4a","Tsc22d3","Josd2","Wdr35","D8Ertd82e","Ltbp2","Taf10","Tpm2","Eif2a","Pltp","Igf2","Tmem167","Nbl1","Syt11","H13","Csnk1e","Mpv17","Tank","Tuba1a","Slc43a1","Zhx3","Scpep1","Ganab","Fam105a","C630043F03Rik","Paxbp1","Zbtb44","Itgav","Fermt2","Htra1","Ssu72","Crh","St5","Tmem242","Eln","Sec11a","Gm16833","Wif1","Ralgps2","Usp22","Sema3c","Rab11b","Rbpms","2010320M18Rik","Cdca7","Enpp2","Mgll","Tcf7l2","Sulf2","Tnc","Irs1","Sepn1","Dzip1","Scd2","Jak1","Pik3ip1","Pcsk5","Slc38a6","Tfcp2","Sdc2","Yaf2","Anapc16","Rpn2","Ddit4l","Nt5e","Col6a3","Il1f9","Morf4l1","Prelp","Pam","Rcn2","Meg3","Pdlim7","Ptch1","Arf1","Dock7","Adamts14","Pros1","Zfp1","Klhl24","Mbnl1","Cacnb3","Bop1","Map2k4","Ncoa1","2900097C17Rik","Ccnd3","Rufy3","Lamtor5","Cyp51","Upf3b","Gucy1a3","Lats2","Mustn1","Znf512b","Tshz3","Tbx3","Ankrd23","Sox5","Praf2","Rab36","Samd4","Col6a2","Col4a2","Col23a1","Ctsl","Arid5b","Il1rap","Rhoq","Mtif2","Ints7","Lrrc8d","Bzw1","Sdad1","Styx","Kpna1","Zfhx3","Ldlrad3","Srp14","Mfhas1","Hook3","Cramp1l","Top1","Gm10845","Sec23a","Zfp46","Ddx50","Met","Gdf10","Rabac1","Ctsd","Ubtd2","Zfp868","B4galt2","Cyld","Basp1","Ikbip","Tet1","Gtf2h1","Lox","Tgfbr3","Jam3","Selm","Fndc3b","Cux1","Tceanc2","Cd99l2","1810043G02Rik","Fam76a","Trappc6b","Lrrc41","Timm22","Ryk","Mysm1","Arl8a","Lsm10","Lamc1","Snap47","Lhfpl2","Fhl2","Ing4","Scfd1","Ltbp3","Fopnl","Glt8d1","Zfp68","Tpp1","D5Ertd579e","Senp6","Grem2","Tgfb3","Sptssa","Bptf","Bmf","Cdh4","Dock6","Kif3a","Peg3","Bzw2","Sec62","Aff4","Vamp2","Fastk","Slc25a51","Ift122","Rnf11","Rp2h","Plcb1","Tmed4","Ppil1","Nthl1","Dchs1","Dst","Gas7","Sult1a1","Ttc28","Ankmy2","Fbxo32","Setd3","Plxna2","Rtcb","Fibin","Nptn","Lrp4")
+
+int_1_list_e16 <- c("Grb10","Tomm6","Tomm5","Zrsr2","Xrcc6","Ndufa5","Ubtf","Ate1","Snrpa","Tgfbi","Apoa1bp","Efna2","Ubl5","Hnrnph1","Grcc10","Clta","Ndufc1","Krtcap2","Ddx1","Calu","Patz1","Rad21","S100a11","Sparcl1","Calr","Ndufv1","Eif2s3x","Pfdn1","Fbxo42","Ip6k2","Ndufs5","Usmg5","Swt1","Psmd7","Zfp46","Mdk","Mboat7","Ncbp1","Pomp","Stmn1","Plekho1","Cdh11","Esd","Gtf2h5","Atp5h","Snrpd3","Slirp","Hsbp1")
+
+int_2_list_e16 <- c("Uqcrb","Adh1","Gm17821","Nfia","Gm15772","Cd302","Rps27rt","Hspe1","Psmb3","6820431F20Rik","Col1a2","Col5a2","Tspan31","Wdr61","Rpl34-ps1","Npm1","Ppia","Frem1","Tmsb10","Slc25a5","Tceb2","Atp5k","Cox7c","Mir703","Top1","Cdh11","Sub1","Entpd7","Atp5g1","Plekha6","Thoc2","Col14a1","Slc38a5","1500012F01Rik","Gm10653","Dnmt3a","Hsp90aa1","Ndufa13","Tceb1","Mfap1b","1810022K09Rik","Tril","Trabd2b","Wnt2","Uqcr11","Sfr1","Zswim8","5031426D15Rik","5730408K05Rik","Gsto1","Cbx1","Ewsr1","Igf2r","Isoc1","Cybrd1","BC017158","Arid4a","Gm1821","Atp5h","Stip1","Ppap2b","Gm15645","Snhg1","Eif3f","Dnm3os","Hnrnpa2b1","Tsix","Etfb","Lamtor2","Fcf1","Actn1","Sltm","Nedd4","Ifitm2","Cfl1","Ctcfl","Trappc2l","Prdx6","Snrpd2","Hnrnpl","Naa20","Atp5o","Uba5","Set","Tor4a","Rps15a-ps4","2010107E04Rik","Orc6","Kdelc2","Hsd17b7","Fam193a","Serf2","Omd","Maf","Lbh","Thyn1","Hspd1","Eif3m","Pfdn5","Grpel1","Sept11","Bri3bp","Nfkbia","Snrpg","Mga","Cacybp","2700097O09Rik","Emc2","Zfand5","Oxa1l","Pcolce","Bmp5","Srsf5","Esf1","Naa15","Gstp1","Cox7a2","Ndufa11","Tomm6","Snhg8","Ddx39b","S100a11","Ndufa5","Mast4","Irak1","Malat1","Gm8580","Zc3h11a","H6pd","Cc2d2a","Snrpf","Nlk","Tmem258","Daam2","Alkbh6","Fundc2","Rab2b","Ndufa8","Hmg20a","Pgd")
+
+matrix_list_e16 <- c("Adamts17","Adh1","Acadsb","Bgn","B4galt1","Cdh11","Cd81","Cd40","Celf2","Col3a1","Col6a1","Col6a2","Col6a3","Col1a1","Col1a2","Ednra","Eif4ebp1","Fhl1","Figf","Fmo2","Fn1","G0s2","Gstm2","Gyg","Hsd11b1","Igf2r","Lpar1","Lox","Limch1","Lrp4","Macf1","Meox2","Maged2","Maf","Mfap4","Nr2f2","Ogn","Olfml3","Pdlim2","Pbx1","Pmp22","Plxdc2","Plac9a","Ppap2b","Ppp1r14a","Ralb","Rcan1","Serpine2","Serping1","Slc38a5","Sh3bgrl","Tcf21","Tgfb1i1","Tns1","Vcam1","Wnt2","Zyx","Vldlr","Rsrp1","Tmem176a","Tagln2","Chst2","Stbd1","Palld","Pdcd4","Slit2","Gpx3","Fgf10","Lipa","Scp2","Lamp2","Fhod1","Gabarap","Emp2","Colec12","Adamts1","Mxra8","Mgp","Lrp1","Gsn","Slc27a6","Selenbp1","Phlda1","Plin2","Prdx6","Ppm1k","Ptprs","Lbh","Myadm","Npnt","Pls3","6030408B16Rik","Akap12","Bmp3","Dpep1","Gng11","Fblim1","Cmklr1","Maged1","Prdx5","Fbn1","Gfra2","Cped1","Mesdc2","Nisch","Angpt1","Lrrc17","Rap2a","Snai2","Tbrg1","Eln","1810010H24Rik","Cul1","Tmem176b","Rbp1","Sept4","Svep1","Enpep","Cass4","Dapk1","Nebl","Tns3","Cnn2","Snhg18","Picalm","Selk","Nexn","Itga8","Myh10","Tacc1","Zfp36l1","Gstm1","Ccl11","Plac9b","Peak1","Spon1","Cacna1d","Itm2b","Hbp1","Isca1","Frem1","1810058I24Rik","Htra3","Idh1","Ptprd","Tmem9b","Bmper","Ndrg2","Mme","Col14a1","Isoc1","Rbms3","Cp","Cdo1","Slc36a2","Fibin","Nid1","Pygm","Pcolce","Specc1l","Dpt","Eml1","Rarres2","Diap2","Mpc2","Limd1","Ablim3","Matn2","Tslp","Apip","Npr3","Gulp1","Glmp","Fgfr4","Gria3","Gigyf1","Csrp1","H6pd","Echdc2","Tcp11l2","Camk1g","Mettl21e","Neo1","Nav2","Lamb1","Arid5b","Selenbp2","Ppp1r2","Prex2","Cfh","Fgfr3","Smim4","Eif3e","Col5a2","Eif4a2","Ubl3","Nfkbia","Rasgrp2","Man2a2","Schip1","Scube2","Fancc","Akap2","Hsd17b10","Pid1","Nr1h3","Add1","Mef2a","Echs1","Robo2","Cpq","Flna","Fam210b","Mylk","Car2","Anxa5","Frrs1l","Rasl12","Rbbp7","Ivd","Lrrc57","Peg3os","Zak","Clk1","Cdc42ep2","Arhgap1","Phex","Tmem38b","Ifnar2","Gfm2","Aldh2","Vmp1","Clmp","Col5a1","Fxyd1","Prkg2","Nr3c1","Prkar1a","Btg1","Tmem119","Gja5","Srsf5","Ankrd13a","Tgfbr3","Srpk2","Cblb","Kcnk5","Myo6","Ndufa4l2","Tmem29","Mical3","Smtnl2","Sppl2a","Rbm39","Abcc5","Ankle2","Bnip3","Sec61a2","Abcd2","Ifitm1","Smc5","Airn","Plekhh2","B3galnt1","Rtn2","Myo10","Lima1","Josd2","Kdelc2","Maml2","Ier3ip1","Nrcam","Rin2","Ech1","Diablo","Ryr3","Anxa6","Tsc22d1","Crcp","Adgrg6","Blmh","Fkbp9","Ddt","Tmem204","Sptbn1","Rgs10","Vcan","Smim14","5031426D15Rik","Epha1","Hadh","Tiam2","Cox6b2","Hif3a","Asb8","Kif13b","Osbpl5","Stag2","Spry4","Fmo1","Fam171a1","Dock4","2310009B15Rik","Adm","Pld3","Rab28","Gdi1","Kcna2","Marf1","8430426J06Rik","Cnot2","Dtna","Plxnc1","D830031N03Rik","Cpxm1","Metap1d","Mettl5","Slc1a3","Notch2","Sqstm1","Blvrb","Tsen15","Ubl7","Yme1l1","Mertk","Map1lc3b","Aldh7a1","Cebpd","Myo1b","Oat","Arhgef3","Tpd52l2","Cited2","Slc10a6","Emilin1","Inpp4a","Fnip1","Lclat1","Fbln5","Ugdh","Nkain4","Tmem45a","Nfic","Gsg1l","Use1","Fat4","Bet1","Fscn1","Gadd45b","Immt","S1pr2","Ube2e3","Tmco1","Pgbd5","Igfbp4","Nfkbiz","Lmna","Cdc42ep5","Loxl1","Chd9","Tcf7l2","Hoxa5","Ces1d","Mmd","Stoml2","Copz2","Slc7a10","Pxk","Med13l","0610010B08Rik","Afap1","Mcee","Ube2v2","Pim1","Eva1b","Rras2","Pld1","Rsrc2","Wac","Them4","Smim13","Zmynd11","Tsc22d3","Angptl4","Enah","Cacna1c","Adck5","Snai1","Ap1s2","Xdh","Dnm3os","Rnd3","Tchh","Boc","Sidt2","Dtx3","Hacd1","Higd1a","Man2a1","Mtpn","Stat5b","Nnt","Pdk4","Txndc15","S1pr3","Cnrip1","Hivep3","Uggt2","Gpm6b","Fam217b","Txndc12","Rrs1","Atp1a2","Zim1","Hspb11","Mtss1l","Dlc1","Strn3","Tmem175","Cox8b","Sqrdl","Mapt","Fam189a2","Tmod3","Sccpdh","Vstm4","Zeb2","Acp2","Kdm7a","Tmbim1","Cacnb4","Iqsec1","Gna14","Slc35a1","Pabpc4l","Ccndbp1","Adam12","Vipr2","Tns2","Rgs17","1110038F14Rik","Zfp839","Ncam1","Snx18","Mrap","Pex19","Ifitm3","Mapk7","Ctdsp2","Tmem254b","Fras1","Tbc1d15","Zfp119a","Pced1b","Twsg1","Mrc2","Ctdspl","Cept1","Gm14420","Pole4","Cyr61","Ndufb3","Mtss1","Ppp1r3c","Arhgef7","Ulk2","Itga1","Trip6","Gpr153","Camp","Ston1","Cbfa2t3","Zfp395","Plk2","Abca9","Ogt","Vps52","Morc3","Brinp1","Cdadc1","Stt3b","Mocs2","Deb1","Nedd9","C7","Hsdl2","Ctdsp1","Degs1","Fah","Tnc","Wwox","Fchsd2","Creb3l1","Snx33","Mapk8ip1","A330076H08Rik","Fndc3b","Slc16a9","Rab3gap1","Chst15","Numa1","Raver2","Ptpra","Efemp2","Nox4","Mga","Uvssa","Chpt1","Rin3","Hunk","Mrps25","Pik3r1","Arhgap24","Egflam","Vcl","Ift43","Zfp277","Ubac1","Rock2","Pdhx","Eea1","Scarf2","Col13a1","Bivm","Pcdha3","Pcdha1","Pcdha8","Pcdha6","Otub2","Fto","Cog6","Wdr60","Pcolce2","Stag1","Eri3","Sc5d","Tmem254c","Tbc1d19","Trmt5","Wdr33","Ptgis","Fam188b","Pkd1","Rnf14","Usp11","Peg3","Capn15","Kdm5c")
+
+```
+
+```{r}
+jaccard <- function(a, b) {
+  intersection <- length(intersect(a, b))
+  union <- length(a) + length(b) - intersection
+  return (intersection/union)
+}
+```
+
+```{r}
+
+meso_celltype_markers <- readRDS("./data/20210802_meso_markers_celltype.rds")
+
+jaccard_pmp <- lapply(meso_celltype_markers, function(x){ jaccard(rownames(x),pmp_list_e16) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+jaccard_myo <- lapply(meso_celltype_markers, function(x){ jaccard(rownames(x),myo_list_e16) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+jaccard_int1 <- lapply(meso_celltype_markers, function(x){ jaccard(rownames(x),int_1_list_e16) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+jaccard_int2 <- lapply(meso_celltype_markers, function(x){ jaccard(rownames(x),int_2_list_e16) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+jaccard_matrix <- lapply(meso_celltype_markers, function(x){ jaccard(rownames(x),matrix_list_e16) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+
+
+jaccard_bind <- rbind(jaccard_pmp,
+                      jaccard_myo,
+                      jaccard_int1,
+                      jaccard_int2,
+                      jaccard_matrix
+                      )
+
+rownames(jaccard_bind) <- c("PMP - LungGENS",
+                           "Myo. FB - LungGENS",
+                           "Intermediate 1 - LungGENS",
+                           "Intermediate 2 - LungGENS",
+                           "Matrix FB - LungGENS"
+)
+colnames(jaccard_bind) <- levels(meso_relabel$celltype)
+
+merged_jaccard_norm <- t(apply(jaccard_bind, 1, function(x)(x-min(x))/(max(x)-min(x))))
+
+merged_jaccard_norm_sum <- t(apply(jaccard_bind, 1, function(x)(x)/(sum(x))))
+
+jaccard_heatmap <- ggplot(melt(as.matrix(merged_jaccard_norm)), aes(x = Var2, y = Var1, fill = value, label = round(value, digits = 3))) +
+        geom_tile() +
+        scale_fill_distiller(palette = "Blues", direction = 1, name = "Jaccard Index", trans = "exp") +
+        geom_text(data = melt(as.matrix(merged_jaccard_norm_sum)), aes(x = Var2, y = Var1, label = round(value, digits = 3))) +
+        theme(aspect.ratio = 0.13,
+              panel.grid = element_blank(),
+              axis.title = element_blank(),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              legend.text = element_text(size = 12),
+              legend.title = element_text(size = 12),
+              axis.text = element_text(size = 12, color = "black"),
+              axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+        )
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=jaccard_heatmap, width=unit(14, "cm"), height=unit(8, "cm")))
+ggsave("./data/figures/meso/meso_jaccard_heatmap.pdf",
+       gridExtra::grid.arrange(egg::set_panel_size(p=jaccard_heatmap, width=unit(14, "cm"), height=unit(8, "cm"))),
+       dpi = 300, bg = "transparent",
+       width=unit(9, "cm"), height=unit(5, "cm"))
+
+
+```
+
+
+## Calculate mean and SD based on the four mice..
+```{r}
+cell_ident_df_ab <- data.frame(timepoint = meso_relabel$timepoint,
+                               cluster = meso_relabel$celltype,
+                               antibody = meso_relabel$HTO_antibody)
+prop_detail_df <- melt(round(prop.table(table(cell_ident_df_ab$timepoint, cell_ident_df_ab$cluster), 1) * 100, 1))
+colnames(prop_detail_df) <- c("timept", "celltype", "mean")
+
+prop_by_mouse <- lapply(as.character(unique(meso_relabel$timepoint)), function(timept){
+
+  filt_by_timept <- filter(cell_ident_df_ab, timepoint == timept) %>% as.data.frame()
+  one_timept_vals <- melt(round(prop.table(table(filt_by_timept$timepoint, filt_by_timept$cluster), 1) * 100, 1)[timept,])
+  # Handle E12, no antibodies
+  if (timept == "E12") {
+    out <- data.frame(timepoint = rep(timept, length(unique(unique(cell_ident_df_ab$cluster)))),
+                      celltype = rownames(one_timept_vals),
+                      mean = one_timept_vals$value,
+                      SD = rep(0, length(unique(unique(cell_ident_df_ab$cluster)))),
+                      SEM = rep(0, length(unique(unique(cell_ident_df_ab$cluster))))
+    )
+    return(out)
+  } else {
+    one_timept_res <- lapply(unique(meso_relabel$HTO_antibody[meso_relabel$timepoint == timept]), function(ab){
+      filt_by_timept <- filter(cell_ident_df_ab, timepoint == timept & antibody == ab) %>% as.data.frame()
+      one_timept_vals <- melt(round(prop.table(table(filt_by_timept$timepoint, filt_by_timept$cluster), 1) * 100, 1)[timept,])
+    }) %>% do.call(cbind, .)
+
+    out <- data.frame(timepoint = rep(timept, length(unique(unique(cell_ident_df_ab$cluster)))),
+                      celltype = rownames(one_timept_vals),
+                      mean = rowMeans(one_timept_res),
+                      SD = apply(one_timept_res, 1, sd),
+                      SEM = apply(one_timept_res, 1, function(x) sd(x)/sqrt(length(x))))
+    return(out)
+  }
+}) %>% do.call(rbind, .)
+
+meso_celltype_order <- c("Prolif. Wnt2+ FB",
+                         "Wnt2+ FB",
+                         "Prolif. Myo FB",
+                         "Myofibroblast",
+                         "Adventitial FB",
+                         "Pericyte",
+                         "Mesothelium",
+                         "Smooth Muscle",
+                         "Cardiomyocyte"
+)
+
+prop_by_mouse$celltype <- ordered(as.factor(prop_by_mouse$celltype), meso_celltype_order)
+
+```
+
+```{r}
+
+cumulitive_prop_by_mouse <- prop_by_mouse %>% group_by(timepoint) %>% arrange(celltype) %>% mutate(cs = rev(cumsum(rev(mean))))
+cumulitive_prop_by_mouse$timepoint <- ordered(as.factor(cumulitive_prop_by_mouse$timepoint), c("E12", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14"))
+prop_by_mouse$timepoint <- ordered(as.factor(prop_by_mouse$timepoint), c("E12", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14"))
+
+
+meso_mountain_plot <- ggplot() +
+  geom_area(data = prop_by_mouse,
+            aes(group = as.factor(celltype), color = as.factor(celltype), fill = as.factor(celltype), y=mean, x=as.factor(timepoint))) +
+  #geom_point(data = cumulitive_prop_by_mouse,
+  #           aes(group = as.factor(celltype), color = as.factor(celltype), fill = as.factor(celltype), y=cs, x=as.factor(timepoint))) +
+  geom_errorbar(data = cumulitive_prop_by_mouse,
+                aes(ymin=cs-SEM, ymax=cs+SEM, y=cs, x=as.factor(timepoint)), width=.1, color = "#4B4B4B", alpha = 0.8) +
+  xlab("Day") +
+  ylab("% of cells") +
+  labs(fill = "Cluster", color = "Cluster", group = "Cluster") +
+  scale_colour_manual(aesthetics = c("color", "fill"), values=color_category_20) +
+  theme(legend.key = element_blank(),
+        legend.text = element_markdown(size=14),
+        legend.title = element_text(size=14),
+        axis.text.x  = element_text(size=14, color = "black"),
+        axis.text.y = element_text(size=14, color = "black"),
+        axis.title.x = element_text(size=14),
+        axis.title.y = element_text(size=14),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white")
+  ) +
+  scale_x_discrete(expand = c(.01, .01)) +
+  scale_y_continuous(expand = c(.01,.01)) +
+  coord_fixed(0.05)
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=meso_mountain_plot, width=unit(10, "cm"), height=unit(10, "cm")))
+
+ggsave("./data/figures/meso/meso_mountains.pdf",
+       egg::set_panel_size(p=meso_mountain_plot, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(7, "cm"), height=unit(5, "cm"))
+
+```
+
+```{r}
+prop_by_mouse[prop_by_mouse$celltype == "AT1",] %>% t()
+```
+
+```{r}
+meso_relabel$timepoint_numeric <- meso_relabel$timepoint
+levels(meso_relabel$timepoint_numeric) <- 1:length(levels(meso_relabel$timepoint))
+meso_relabel$timepoint_numeric <- as.numeric(meso_relabel$timepoint_numeric)
+
+
+# Code from here: https://github.com/cole-trapnell-lab/monocle3/issues/502
+# create cell dataset, don't worry about the warning
+meso_cds <- monocle3::new_cell_data_set(
+        Seurat::GetAssayData(meso_relabel, assay='RNA', slot='data'),
+        cell_metadata=meso_relabel@meta.data
+)
+
+saveRDS(meso_cds, "./data/20210802_celldataset_meso_relabel.rds", compress = "bzip2")
+```
+####################
+####################
+####################
+####################
+####################
+
+
+## Wnt2 and Wnt5a expression
+```{r, fig.width = 12}
+wnt2_meso_plot <- FeaturePlot(meso, "Wnt2") +
+        featureplot_theme() +
+        theme(aspect.ratio=1) +
+        scale_color_viridis(name = "Expression", direction = -1)
+wnt5a_meso_plot <- FeaturePlot(meso, "Wnt5a") +
+        featureplot_theme() +
+        theme(aspect.ratio=1) +
+        scale_color_viridis(name = "Expression", direction = -1)
+
+wnt2_meso_plot + wnt5a_meso_plot + plot_layout(ncol = 2)
+
+ggsave("./figures/meso/meso_wnt_plot.png",
+         wnt2_meso_plot + wnt5a_meso_plot + plot_layout(ncol = 2),
+         width = 12, height = 4.5)
+
+```
+
+
+# Higher res clustering
+
+## UMAP and clustering with increased granularity
+```{r, fig.width = 12}
+plan("sequential")
+
+meso_highres <- cluster_pca_umap(meso_relabel, k_param = 25, dims_umap = 1:15, dims_neighbors = 1:25, cluster_res = 0.2) # Note, this breaks if future is set to plan: multiprocess
+
+
+p_cluster <- DimPlot(meso_highres) + umap_theme() +
+        scale_colour_manual(name = "Cluster", values = color_category_20) +
+        theme(aspect.ratio=1)
+p_time <- DimPlot(meso_highres, group.by = "timepoint") + umap_theme() +
+        scale_colour_manual(name = "Timepoint", values = color_scanpy_default)+
+        theme(aspect.ratio=1)
+
+p_cluster + p_time + plot_annotation("Mesenchyme")
+
+```
+
+```{r}
+
+ggplot_data <- as.data.frame(Embeddings(meso_highres, reduction = "umap"))
+ggplot_data$named_clusters <- meso_relabel$celltype
+ggplot_data$timepoint <- meso_relabel$timepoint
+ggplot_data$subclusters <- Idents(meso_highres)
+
+myo_highlight <- ggplot() +
+        geom_point(data = ggplot_data[!(ggplot_data$named_clusters %in% c("Prolif. MyoFB", "Myofibroblast")),],
+                   aes(x = UMAP_1, y = UMAP_2), size = 0.1, alpha = 0.2, color = "gray") +
+        geom_point(data = ggplot_data[(ggplot_data$named_clusters %in% c("Prolif. MyoFB", "Myofibroblast")),],
+                   aes(x = UMAP_1, y = UMAP_2, color = timepoint), size = 0.1) +
+        umap_theme() +
+        scale_colour_manual(name = "Timepoint", values = color_category_20) +
+        theme(aspect.ratio=1) +
+        theme(legend.text=element_text(size=14),
+              legend.title=element_text(size=14),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent")) +
+        guides(colour = guide_legend(override.aes = list(size=3))) +
+        ggtitle("Myofibroblasts by time")
+
+myo_highlight
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=myo_highlight, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/meso/umap_myo_timepoint.png",
+       egg::set_panel_size(p=myo_highlight, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+
+
+```
+
+```{r}
+
+wnt5a_plot <- FeaturePlot(meso_relabel, "Wnt5a") +
+        featureplot_theme() +
+        theme(aspect.ratio=1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent")) +
+        scale_color_viridis(name = "Expression", direction = -1)
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=wnt5a_plot, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/meso/meso_wnt5a_plot.png",
+       egg::set_panel_size(p=wnt5a_plot, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+
+
+wnt2_plot <- FeaturePlot(meso_relabel, "Wnt2") +
+        featureplot_theme() +
+        theme(aspect.ratio=1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent")) +
+        scale_color_viridis(name = "Expression", direction = -1)
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=wnt2_plot, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/meso/meso_wnt2_plot.png",
+       egg::set_panel_size(p=wnt2_plot,, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+
+```
+
+```{r}
+
+plin2_plot <- FeaturePlot(meso_relabel, "Plin2") +
+        featureplot_theme() +
+        theme(aspect.ratio=1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent")) +
+        scale_color_viridis(name = "Expression", direction = -1)
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=plin2_plot, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/meso/meso_plin2_plot.png",
+       egg::set_panel_size(p=plin2_plot, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+
+```
+## Identify marker genes in each cluster
+```{r}
+plan("multiprocess", workers = N_WORKERS)
+filename <- "./data/meso_markers_clusters_highres.rds"
+if (!file.exists(filename)) {
+  meso_markers_highres <- parallelFindAllMarkers(meso_highres)
+  saveRDS(meso_markers_highres, filename)
+} else {
+  meso_markers_highres <- readRDS(filename)
+}
+```
+
+# Save markers for detailed meso clusters
+```{r}
+meso_highres_myo_clusters <- c(0,6,8,10)
+meso_highres_myo_names <- c("Mature myofibroblasts", "E18 myofibroblasts", "Proliferating myofibroblasts", "E12-E15 myofibroblasts")
+
+wb_myo_markers <- createWorkbook()
+for (idx in seq_along(meso_highres_myo_clusters)){
+  i <- meso_highres_myo_clusters[idx] + 1
+  addWorksheet(wb_myo_markers, meso_highres_myo_names[idx])
+  writeData(wb_myo_markers, meso_highres_myo_names[idx], meso_markers_highres[[i]], rowNames = TRUE)
+}
+saveWorkbook(wb_myo_markers, file = "./figures/meso/myo_highres_marker_genes.xlsx", overwrite = TRUE)
+
+
+```
+
+```{r}
+wnt5a_all_myo <- VlnPlot(subset(meso_relabel, ident = c("Myofibroblast", "Proliferating myofibroblast")), "Wnt5a", group.by = "timepoint") +ggtitle("All myofibroblasts")
+wnt5a_mature_myo <-  VlnPlot(subset(meso_highres, ident = 0), "Wnt5a", group.by = "timepoint") + ggtitle("Mature myofibroblasts")
+wnt5a_proliferating_myo <- VlnPlot(subset(meso_highres, ident = 8), "Wnt5a", group.by = "timepoint") + ggtitle("Proliferating myofibroblasts")
+wnt5a_e18_myo <- VlnPlot(subset(meso_highres, ident = 6), "Wnt5a", group.by = "timepoint") + ggtitle("'E18' myofibroblasts")
+```

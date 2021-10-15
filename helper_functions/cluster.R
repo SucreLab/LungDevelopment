@@ -11,12 +11,12 @@
 #' @param k_param k for finding neighbors
 #' @param cluster_res Resolution for clustering
 #' @return Seurat object
-cluster_pca_umap <- function(obj, dims_umap = 1:15, dims_neighbors = 1:15, k_param = 10, cluster_res = 0.3){
+cluster_pca_umap <- function(obj, dims_umap = 1:15, dims_neighbors = 1:15, k_param = 10, cluster_res = 0.3, umap_neighbors = 30){
   if ("integrated" %in% names(obj)){
     DefaultAssay(obj) <- "integrated"
   }
   obj <- RunPCA(obj, verbose = F)
-  obj <- RunUMAP(obj, dims = dims_umap, verbose = F)
+  obj <- RunUMAP(obj, dims = dims_umap, verbose = F, n.neighbors = umap_neighbors)
   obj <- FindNeighbors(obj, dims = dims_neighbors, k.param = k_param)
   obj <- FindClusters(obj, resolution = cluster_res)
   if ("integrated" %in% names(obj)){

@@ -1,0 +1,144 @@
+---
+title: "scSEQ analysis of the developing epithelium"
+author: Nick Negretti
+date: 08/09/21
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung epithelium
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE, load-libraries}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+#source("./helper_functions/libraries.R")
+library(monocle3)
+library(tidyverse)
+library(knitr) # for kable
+options(knitr.table.format = "html")
+library(kableExtra) # for pretty tables kable_styling()
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+#N_WORKERS <- 12
+#plan("multiprocess", workers = N_WORKERS)
+
+```
+## Load data from merge and clean pipeline
+```{r}
+meso_relabel <- readRDS("./data/20210802_meso_labeled.rds")
+
+## Markers by celltype
+meso_relabel$celltype <- ordered(meso_relabel$celltype, c("Prolif. Wnt2+ FB",
+                                                          "Wnt2+ FB",
+                                                          "Prolif. Myo FB",
+                                                          "Myofibroblast",
+                                                          "Adventitial FB",
+                                                          "Pericyte",
+                                                          "Mesothelium",
+                                                          "Smooth Muscle",
+                                                          "Cardiomyocyte"
+))
+
+```
+
+```{r}
+levels(meso_relabel$celltype)
+```
+
+```{r}
+meso_prolif_wnt2_fits <- readRDS("./data/20210802_meso_filt_fits_prolif_wnt2.rds")
+meso_wnt2_fits <- readRDS("./data/20210802_meso_filt_fits_wnt2.rds")
+meso_prolif_myo_fits <- readRDS("./data/20210802_meso_filt_fits_prolif_myo.rds")
+meso_myo_fits <- readRDS("./data/20210802_meso_filt_fits_myo.rds")
+meso_adventitial_fits <- readRDS("./data/20210802_meso_filt_fits_adventitial.rds")
+meso_pericyte_fits <- readRDS("./data/20210802_meso_filt_fits_pericyte.rds")
+meso_mesothelium_fits <- readRDS("./data/20210802_meso_filt_fits_mesothelium.rds")
+meso_smuscle_fits <- readRDS("./data/20210802_meso_filt_fits_smuscle.rds")
+meso_cardiomyocyte_fits <- readRDS("./data/20210802_meso_filt_fits_cardiomyocyte.rds")
+
+meso_fits_list <- list(meso_prolif_wnt2_fits, meso_wnt2_fits,
+                       meso_prolif_myo_fits, meso_myo_fits,
+                       meso_adventitial_fits, meso_pericyte_fits,
+                       meso_mesothelium_fits, meso_smuscle_fits,
+                       meso_cardiomyocyte_fits
+)
+
+names(meso_fits_list) <- c("Prolif. Wnt2+ FB",
+                          "Wnt2+ FB",
+                          "Prolif. Myo FB",
+                          "Myofibroblast",
+                          "Adventitial FB",
+                          "Pericyte",
+                          "Mesothelium",
+                          "Smooth Muscle",
+                          "Cardiomyocyte"
+)
+
+```
+
+
+```{r}
+
+meso_fits_list <- lapply(names(meso_fits_list), function(x){
+  seurat_dat <- subset(meso_relabel, celltype == x)
+  meso_fits_list[[x]]$cells_expressing <- Matrix::rowSums(GetAssayData(seurat_dat, assay = "RNA", slot='data') > 0)[meso_fits_list[[x]]$gene_id]
+  meso_fits_list[[x]]$sum_exp_level <- Matrix::rowSums(GetAssayData(seurat_dat, assay = "RNA", slot='data'))[meso_fits_list[[x]]$gene_id]
+  return(meso_fits_list[[x]])
+})
+
+names(meso_fits_list) <- c("Prolif. Wnt2+ FB",
+                           "Wnt2+ FB",
+                           "Prolif. Myo FB",
+                           "Myofibroblast",
+                           "Adventitial FB",
+                           "Pericyte",
+                           "Mesothelium",
+                           "Smooth Muscle",
+                           "Cardiomyocyte"
+)
+
+saveRDS(meso_fits_list, "./data/20210831_meso_monocle_fits_list.rds", compress = "bzip2")
+```
+
+```{r}
+
+
+meso_fits_list_q_val <- lapply(names(meso_fits_list), function(x){
+  meso_fits_list[[x]] %>% filter(cells_expressing > 10 & q_value <= 0.05)
+})
+
+names(meso_fits_list_q_val) <- c("Prolif. Wnt2+ FB",
+                           "Wnt2+ FB",
+                           "Prolif. Myo FB",
+                           "Myofibroblast",
+                           "Adventitial FB",
+                           "Pericyte",
+                           "Mesothelium",
+                           "Smooth Muscle",
+                           "Cardiomyocyte"
+)
+
+wb <- openxlsx::createWorkbook()
+for (idx in seq_along(meso_fits_list_q_val)){
+  openxlsx::addWorksheet(wb, names(meso_fits_list_q_val)[idx])
+  openxlsx::writeData(wb, names(meso_fits_list_q_val)[idx], meso_fits_list_q_val[[idx]], rowNames = TRUE)
+}
+openxlsx::saveWorkbook(wb, file = "./data/figures/meso/genes_assoc_time_epi.xlsx", overwrite = TRUE)
+
+
+
+```
+# Use nichenet to find drivers..
+
+
+```{r}
+VlnPlot(epi_at1, "Tuba1a", group.by = "timepoint")
+```

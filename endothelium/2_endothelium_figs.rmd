@@ -1,0 +1,445 @@
+---
+title: "scSEQ analysis of the developing epithelium"
+author: Nick Negretti
+date: 08/09/21
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung epithelium
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE, load-libraries}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+```
+## Load data from merge and clean pipeline
+```{r}
+endo_relabel <- readRDS("./data/20210802_endo_devo_data_sct_labeled.rds")
+endo_relabel
+```
+
+
+```{r}
+VlnPlot(subset(endo_relabel, celltype == "aCap" & timepoint %in% c("E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14")), "Kdr", group.by = "timepoint")
+
+ggsave("./data/figures/endo/acap_kdr.pdf",
+       VlnPlot(subset(endo_relabel, celltype == "aCap" & timepoint %in% c("E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14")), "Kdr", group.by = "timepoint"),
+       dpi = 300, bg = "transparent",
+       width=unit(12, "cm"), height=unit(5.8, "cm"))
+```
+
+```{r}
+p_cluster <- DimPlot(endo_relabel, group.by = "celltype", pt.size = 0.05) + umap_theme() +
+  scale_colour_manual(name = "Cluster", values = color_category_20) +
+  theme(aspect.ratio=1,
+        panel.background = element_rect(fill = "transparent", colour = "black"),
+        plot.background = element_rect(color = "transparent", fill = "transparent"),
+        plot.title = element_blank())
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=p_cluster, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/endo/endo_labeled_umap.png",
+       egg::set_panel_size(p=p_cluster, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+```
+
+```{r}
+p_timepoint <- DimPlot(endo_relabel, group.by = "timepoint") + umap_theme() +
+        scale_colour_manual(name = "Timepoint", values = color_category_20) +
+        theme(aspect.ratio=1,
+              legend.text = element_text(size = 12),
+              legend.title = element_text(size = 12),
+              plot.title = element_blank(),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent")
+        )
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=p_timepoint, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/endo/endo_labeled_umap_timepoint.png",
+       egg::set_panel_size(p=p_timepoint, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+```
+
+
+## Set celltype to markers
+```{r}
+Idents(endo_relabel) <- endo_relabel$celltype
+celltypes <- c("Arterial maEC",
+               "Venous maEC",
+               "Prolif. gCap",
+               "gCap",
+               "aCap",
+               "Lymphatic"
+)
+```
+
+## Re-confirm the markers in the relabeled clusters
+```{r}
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+filename <- "./data/20210802_endo_devo_data_sct_labeled_markers.rds"
+if (!file.exists(filename)) {
+  endo_relabeled_markers <- parallelFindAllMarkers(endo_relabel)
+  names(endo_relabeled_markers) <- levels(Idents(endo_relabel))
+  saveRDS(endo_relabeled_markers, filename)
+} else {
+  endo_relabeled_markers <- readRDS(filename)
+}
+
+
+wb_markers_names <- levels(Idents(endo_relabel))
+wb_markers <- createWorkbook()
+for (idx in seq_along(wb_markers_names)){
+  addWorksheet(wb_markers, wb_markers_names[idx])
+  writeData(wb_markers, wb_markers_names[idx], endo_relabeled_markers[[idx]], rowNames = TRUE)
+}
+saveWorkbook(wb_markers, file = "./data/20210802_endo_devo_data_sct_labeled_markers.xlsx", overwrite = TRUE)
+```
+
+
+```{r}
+marker_genes <- c("Cxcl12", "Pcsk5", # Art maEC
+                  "Vegfc", "Prss23", # Ven maEC?
+                  "Mki67", "Top2a", # Prolif gCap
+                  "Gpihbp1", "Kit", # gCap
+                  "Car4", "Kdr", # aCap
+                  "Flt4", "Ccl21a" # Lymphatic
+)
+
+endo_marker_plot <- DotPlot(endo_relabel, features = marker_genes, group.by = "celltype", dot.scale = 8)
+
+endo_marker_plot_w_theme <- endo_marker_plot +
+  scale_color_distiller(palette = "Blues", direction = 1, name = "Expression") +
+  scale_y_discrete(limits=rev) +
+  theme(axis.title = element_blank(),
+        axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 12),
+        aspect.ratio = 1,
+        panel.background = element_rect(fill = "transparent", colour = "black"),
+        plot.background = element_rect(color = "transparent", fill = "transparent"),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 12)
+  )
+
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=endo_marker_plot_w_theme, width=unit(9.5, "cm"), height=unit(7, "cm")))
+ggsave("./data/figures/endo/dotplot_markers.pdf",
+       egg::set_panel_size(p=endo_marker_plot_w_theme, width=unit(9.5, "cm"), height=unit(7, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(7, "cm"), height=unit(4, "cm"))
+
+```
+
+
+```{r}
+# Cell-type markers identified in: "Capillary cell-type specialization in the alveolus" https://www.nature.com/articles/s41586-020-2822-7
+# Filtered to > 1.0 log2FC
+
+gillich_acap <- c("Fibin", "Tbx2", "Ednrb", "Chst1", "AI836003", "Rprml", "Apln", "Adamtsl5", "AW112010", "Pde8b", "Tmeff2", "Cdkn2b", "Car4", "Ccdc68", "Chst2", "Lrp4", "AW549542", "Pcdhac2", "Emp2", "D630045J12Rik", "Egflam", "Gnao1", "Igfbp7", "Ptp4a3", "C1qtnf2", "Itgb5", "Frrs1", "Enho", "Slc22a23", "Nhlrc2", "Dpysl5", "Pmp22", "Grb14", "Xpnpep2", "Edil3", "Prx", "Kitl", "Lrrc16a", "Pvrl3", "Serpine1", "Tns3", "Krt80", "Hyal1", "Gprc5a", "Meox1", "Sept4", "2610203C22Rik", "Sema7a", "Aard", "Gpr56", "Tbx3", "Cyp4b1", "Abcc3", "Prdm1", "Itga3", "Fgf1", "Hopx", "Nptx1", "Pphln1", "Gadd45b", "Tppp3", "Kdr", "Grina", "Gpnmb", "Tbxa2r", "Tmem204", "Sirpa", "Paqr7", "Plxdc1", "Agfg1", "Dcbld1", "Rasa4", "Cd34", "Rgs12", "Rbfox3", "Dapk1", "Nipal3", "Atp8a1", "Fgfr3", "Clu", "Ms4a8a", "Nkd1", "Mgll", "Rgs6", "Lrrn3", "Aff3", "Tnfrsf11b", "Bcam", "Lmo7", "Phlda3", "Nrp1", "Pcdh1", "Fam38b", "Pcolce2", "Olfml2a", "Rasgrp2", "S1pr4", "Hspb1", "Pnkd", "Tmod2", "Endou", "Rbm38", "Icam1", "Zfp697", "Abhd15", "Irs1", "Rap2a", "Atp13a2", "Prrt4", "Lphn2", "Rab31", "Adhfe1", "Tspan15", "Pllp", "Tspan12", "Ccbp2", "Gem", "Zdhhc9", "Csgalnact1", "Homer3", "Plekha1", "Slc48a1", "Slc5a12", "Inpp5a", "3110035E14Rik", "Vcl", "Tmcc2", "Fndc1", "Arhgef3", "Ceacam1", "Mfng", "Glis2", "Phlda1", "Rai2", "Il1a", "Tnik", "Map3k5", "Prickle2", "Orai2", "Abcg1", "Mgst3", "Arhgap1", "Clic5", "Pqlc3", "6330409N04Rik", "Sema3f", "Tepp", "Scrn1", "Ccnd3", "Rspo3", "Sccpdh", "Cx3cl1", "Col12a1", "Ctdspl", "Ncam1", "Cd247", "Fam49a", "Elmo1", "BC031353", "Crym", "Cdipt", "Golm1", "Klf11", "Nbl1", "Osbpl8", "E330013P06", "Sgip1", "Dock4", "Cnr2", "D16H22S680E", "Atg13", "Pik3cb", "Gcnt2", "Mertk", "Prkce", "Arhgap6", "Gnpnat1", "Fam174b", "Pawr", "Ifltd1", "Begain", "Ell2", "Gpx3", "Zfp710", "Mpped2", "Ptpn4", "Fam57a", "Ccdc109b", "Ttyh3", "Hdac5", "Prep", "Zdhhc14", "Spred2", "Eif4ebp2", "Ampd3", "Ido1", "Vav3", "Tln2", "Dnaic1", "Sema5a", "Atg4a", "Slc30a1", "G630008E18", "Slc40a1", "Tex14", "Lrrc8d", "Bpgm", "Pyhin1", "Fnbp1", "Tekt3", "2310028H24Rik", "Ift57", "Dgkz", "Sept8", "Ankrd29", "Zdhhc18", "Alg2", "Sirt2", "Amn1", "St6galnac4", "Mbd2", "Tmco3", "Mest", "Arrdc2", "Bcas3", "Mocos", "Rarg", "Amacr", "Ces2e", "Pdgfd", "Dgke", "Ptges", "Acot7", "Trerf1", "Smox", "6230427J02Rik", "Mink1", "Ip6k3", "Ar", "Rab27b", "Nid1", "Mzt1", "Tmem71", "Gfpt2", "Ipo13", "Tnxb", "Ino80c", "Ntn4", "Smap2", "Dnajb14", "Gm10638", "Bdkrb2", "Il1rap", "Pkia", "Got1")
+
+gillich_gcap <- c("Pltp", "Gpihbp1", "Cd93", "Tspan7", "Kit", "BC028528", "Wfdc1", "Plvap", "Hilpda", "Sema3c", "Lpl", "H2-Ab1", "Aplnr", "Hmcn1", "Rnf144a", "Npr3", "Casc4", "Bmp6", "Cd74", "H2-Aa", "Tek", "Stmn1", "Glp1r", "Hey1", "Cxcl12", "Sox17", "Acer2", "Tmem221", "Cadm1", "Slc6a6", "Sox11", "Mcf2l", "H2-Eb1", "Adrb1", "Grtp1", "Vegfa", "Itga1", "Ncald", "Entpd1", "Arhgef26", "Mlec", "Sparcl1", "Car2", "1110050K14Rik", "2610507I01Rik", "Car14", "Atp1a1", "Gna14", "H2-DMb1", "Lphn3", "Plcb1", "Dnahc8", "Antxr2", "Nckap5", "Epb4.1", "Scube1")
+
+gillich_artery <- c("Gja5", "Bmx", "Fads2", "Cdh13", "Htra1", "Sulf1", "Cytl1", "AU021092", "Olfm2", "Plek2", "Mgst1", "Sfrp1", "Enpp6", "Ctsh", "Dkk2", "Mgp", "Kcnn4", "Vcam1", "Selp", "Fbln2", "Kcne3", "Tmem158", "Gkn3", "Gpr126", "Fads3", "Sncg", "Arhgap44", "Lmcd1", "Fam70b", "Vwf", "Tnfrsf26", "Cd59a", "Cdc42ep3", "Mtap1b", "Fbln5", "Emp3", "Plat", "Fblim1", "Trim47", "Gata6", "Cd81", "Bsg", "Pdlim3", "Itgb4", "Bgn", "Kank1", "Eps8l2", "Fam3c", "Kazald1", "Hey2", "Myof", "Bmp4", "Efna5", "Prr15", "Tsc22d1", "Rfk", "Cst3", "Ccdc80", "Sorbs2", "Apoe", "C1qtnf9", "Gcnt1", "Tm4sf1", "Nuak1", "Zyx", "Tnfaip2", "Cmklr1", "Spon1", "Fstl1", "Igfbp4", "Ptprj", "Fxyd5", "Atp2b2", "Fam107a", "Smtnl2", "Avpi1", "Art4", "Tinagl1", "Stk32a", "Ptprr", "Gpr30", "Ltbp4", "Azin1", "Rbp7", "4933407C03Rik", "Slc45a4", "Col5a2", "Rcn3", "Pthlh", "Psen2", "Fhdc1", "D19Wsu162e", "Mbd4", "Plac8", "Id2", "Parm1", "Eln", "Thsd7a", "Gja4", "Afap1l2", "S100a11", "Il27ra", "Klk10", "Hrct1", "Id3", "Irf6", "Gpx1", "Crispld1", "Lox", "Capg", "Lama3", "Nos3", "Mecom", "Jam2", "Cldn15", "Dap", "Cd82", "Cdkn1c", "Atp2b4", "Fam174b", "Sgms2", "Ephx2", "Hpse", "Ces2b", "Lsr", "Cpe", "Nxn", "Ssfa2", "Cyr61", "Plekha6", "F2rl1", "Cthrc1", "Ptger4", "Elovl4", "Dst", "Pdia5", "Prnp", "Pld1", "Adh7", "Ccnd2", "Mmrn2", "Unc13d", "Arhgdib", "Sele", "Slc52a3", "Jag1", "Ces2g", "Sept11", "Rnd1", "Atp13a3", "S100a6", "Cenpt", "Nmnat2", "Prune2", "Edn1", "Nrarp", "Plxnd1", "Golim4", "Fam135a", "Wwp1", "Clu", "Calml4", "Pla2g16", "Dram1", "Smpdl3a", "Rsph9", "Dmd", "Foxc1", "Snx24", "Sdc1", "Degs2", "Cdc42ep5", "Rasl11a", "Fam20a", "Gatsl3", "Cd55", "Npas2", "Stom", "Plp2", "Utrn", "Lrig1", "Slc12a7", "Hoxa4", "St3gal5", "Esr2", "Tnfaip8", "Aggf1", "Uchl1", "Spata13", "Mical2", "Dhh", "Selm", "Marveld1", "Ndn", "Cd2ap", "Tm6sf2", "Fryl", "Klhl6", "Stbd1", "Cdk2ap2", "Prr13", "Doc2b", "Hmox2", "Krt18", "Isyna1", "Lipt2", "Syt15", "Rbp1", "Pi16", "Bhlhe40", "Hspg2", "Adh1", "Epha1", "Gpr21", "Pcsk5", "Slc4a4", "Zmynd15", "Efna1", "Ddr1", "Galntl2", "Ptplad2", "Flrt1", "4931408A02Rik", "Fez1", "Cited2", "Ccdc3", "Rnd3", "Auts2", "Gstt3", "Me1", "Alox5ap", "Fmo2", "Fbn1", "Igf2", "Procr", "Casp12", "Tpi1", "Tnfrsf1b", "Ppp2r2c", "Tmem98", "Casp1", "Rin1", "Unc13b", "Serpinb8", "Arhgap42", "C630004H02Rik", "Fam69a", "Perp", "Lpar4", "Pknox2", "Mal")
+
+
+gillich_vein <- c("Slc6a2", "Bst1", "Car8", "Amigo2", "Tmem45a", "Vegfc", "Mustn1", "Ch25h", "Prss23", "Samd5", "Vwf", "Cpe", "Nr2f2", "Lhx6", "Csrp2", "Lrg1", "Bgn", "Vcam1", "Pla2g4a", "Ptgis", "Fam101b", "Ptgs2", "Kcnb1", "Chn2", "Cxcr7", "E030010A14Rik", "Emp3", "2200002D01Rik", "Dnm3", "Elovl7", "Oat", "St6gal1", "AU021092", "Cryab", "Lpcat2", "Cthrc1", "Ptgs1", "2200002K05Rik", "Cd81", "Ogfrl1", "Cygb", "Ctgf", "Ctsh", "Hdc", "5430407P10Rik", "Cyp1a1", "Pgm5", "Arhgap20", "Hs3st1", "Fam198b", "Eps8", "Ptprr", "Mmp2", "Prcp", "Gm13889", "Col14a1", "Ptk2b", "Bace2", "Adamtsl3", "Tmem180", "Pkn3", "Dnm3os", "Moxd1", "Procr", "Metrnl", "Palld", "Smad3", "Serpinb6b", "Net1", "Kcnh1", "Klhl6", "Rcan1", "Nkd2", "Trpv4", "Gm6213", "Pemt", "Mfsd7c", "Foxc1", "Acox3", "Adamts10", "Mgat4a", "Myof", "Lynx1")
+
+
+gillich_lymphatic <- c("Mmrn1", "Thy1", "Reln", "Maf", "Gpm6a", "Slc45a3", "Tbx1", "Fxyd6", "Cp", "Pcsk6", "Kcnn3", "Pdpn", "Nrp2", "Lama4", "Prox1", "Apba2", "Pvrl2", "Gja1", "Scn1b", "Sema3d", "Col23a1", "Tnfaip8l1", "Emid1", "Klhl4", "Lcn2", "Abca1", "Sh3gl3", "Prelp", "Mrc1", "Lrrn4cl", "Dapk2", "Pde2a", "Dtx1", "Il7", "Tc2n", "Hoxd8", "Hoxd9", "Btnl9", "Sema3a", "Enpp3", "Kcnj8", "Gprc5b", "Scn3a", "Ablim3", "Nr2f2", "Plce1", "Celsr1", "Sgsm1", "Slco2b1", "Adamtsl1", "Fgl2", "Sned1", "Itga9", "F8", "Gm525", "Prkcz", "Hoxd3", "Slc10a6", "Wipf3", "Ndrg1", "Mterfd2", "Flt4", "Fcgrt", "Ecm2", "Pgf", "Nid2", "Fscn1", "Hjurp", "Tgfbr2", "Bok", "1110032F04Rik", "Ctnnal1", "Dab2", "Gpr97", "Col18a1", "Ablim2", "Smtn", "Stab2", "Cd63", "AA467197", "Ltbp4", "Timp3", "Ptx3", "Spsb1", "Mpp7", "Olfr1372-ps1", "Ptpn3", "Itm2a", "Tshz2", "Fam43a", "Ppfibp1", "Cebpb", "1700025G04Rik", "Pard6g", "Aebp1", "Zfp521", "C77080", "2900041M22Rik", "Rnase4", "Dennd4a", "Hps3", "Gas7", "Loxl2", "Kctd17", "Ccdc48", "C230081A13Rik", "Palm", "Gprc5c", "Rnf19b", "Mtmr12", "Stab1", "Kbtbd11", "Sncaip", "B130024G19Rik", "Fgf12", "Duox2", "Rgs7bp", "Itih5", "Marcksl1", "Fgfr1", "Apold1", "Mall", "Dusp2", "Unc5b", "Fam108b", "Prr5", "A430107O13Rik", "Rtkn", "Srgap3", "Radil", "Slc16a12", "Duoxa2", "Pion", "Gjc2", "Thbs1", "Dlg1", "Kctd12", "Lbp", "Ankrd6", "Lpin3", "Prss23", "Trpc3", "Fth1", "Sepp1", "Fkbp5", "Aplp2", "Sulf2", "Prkag2", "Ank", "Nxn", "Rab3il1", "Rftn2", "Leprel2", "Tnfrsf11a", "Pear1", "Ang", "Tgfb3", "Smad1", "Atp2b4", "Magi1", "Tgfb2", "Bmp2k", "Zfhx4", "Serpina3n", "1810008I18Rik", "Rcn3", "Asph", "Ptpn14", "Notch2", "Trf", "Igsf3", "Npl", "Pde7b", "Lrg1", "Mmp14", "Pros1", "Ptger2", "Bcr", "Arsb", "Lars2", "Myo7a", "Sult1a1", "Samsn1", "Nqo1", "Timp2", "Sgk3", "Sord", "Fgd6", "Pgm5", "Lims1", "Rab11fip5", "Plekhg3", "Fbn1", "Nrxn2", "Ank2", "4930487H11Rik", "Synpo", "Gnas", "Npr2", "Pld5", "Susd4", "Scn5a", "Hoxd4", "Nr1h3", "S100a6", "Ttc9", "Pglyrp1", "Tbc1d4", "Foxc2", "Slc39a4", "Flnc", "Lamb1", "Fbln5", "Map3k1", "Tmem173", "4831426I19Rik", "Dennd2a", "Ttyh1", "Cacna2d3", "Cpne2", "Tnfaip8l3", "Tns1", "Tcf7l1", "Mfsd4", "Ntn1", "Plekho2", "Flrt3", "Colec12", "4933426D04Rik", "Man1a", "Tspan5", "Nts", "Ddit4", "Foxp2", "Ptprf", "4833422C13Rik", "Osr1", "Prkcdbp", "Ubtd1", "Clca5", "Tub", "Ebf3", "Prdm5", "Serinc3", "Itprip", "Gm1673", "Nfatc1", "Acsf2", "Ppp2r5a", "Tead1", "Abcg2", "Flywch2", "Stt3b", "Ptpre", "Gm3230", "Meox1", "Man2a2", "Rnf39", "Plod1", "B3gnt8", "Tril", "Yes1", "Pparg", "Syn2", "Pkhd1l1", "Snx9", "Ccdc88c", "Sema6b", "Nrcam", "Nfat5", "Heatr8", "Flrt2", "Wipi1", "Gls", "Htr2b", "Gm11837", "Fam69b", "Lamc1", "Tmem200c", "Dnahc10", "Tmem64", "Hspg2", "Thsd7a", "Diap2", "Tmc8", "Stox2", "Camk2n1", "Errfi1", "Rhobtb3", "Sntb2", "Prr5l", "Gramd1a", "Pacsin3", "Twsg1", "Cd302", "Slfn3", "Arl4a", "Lrrc1", "H6pd", "Tgfbi", "Bhlhe40", "Scml4", "Serpina3h", "Wnk1", "Lamp2", "Prkcq", "Tbc1d9", "Atp13a3", "Otud1", "Gng11", "Slc9a9", "Fam63b", "Zdhhc2", "Esyt2", "Edaradd", "Epb4.9", "Emilin1", "Zfp36l2", "Gng2", "Txnip", "Zfp703", "Igfbp5", "Fam189a2", "Angpt2", "Glud1", "Pdlim4", "Serping1", "Kctd1", "Fxyd1", "F2rl1", "Ssbp2", "Pde3b", "Ifi27l2a", "Hic1", "A730008H23Rik", "Atp8a2", "Il11ra1", "Cacna1e", "Cldn11", "Hoxd10", "Runx2", "Stc2", "Ccdc146", "Vav3", "Elk3", "Trib1", "Npnt", "Ctdspl", "Sigmar1", "Mmrn2", "Rspo3", "Arhgef40", "Zcchc24", "Xpo6", "C1qtnf6", "Il17ra", "Igsf10", "Il33", "Rhobtb1", "Rabgap1l", "Aph1b", "Tpcn1", "Nox4", "X99384", "4930578C19Rik", "Sh3bp5", "Rasl10a", "Ltbp1", "Zfp423", "Popdc2", "Nov", "Trip6", "Fign", "Rgs16", "1700026J04Rik", "Ston2", "Cd14", "Apaf1", "Degs1", "Adamts15", "Anpep", "Leprel1", "Scpep1", "Tnc", "Dnahc6", "1700034J05Rik", "Anxa1", "Fam102b", "Heph", "Pgcp", "1700017B05Rik", "Ctsb", "Adam19", "Slc38a2", "Tspan3", "Nr5a2", "Egln3", "Comt", "Sdc1", "Fndc1", "Tgfb1", "Cntfr", "Nexn", "Ncf2", "Mical3", "Fah", "Hivep3", "Gucy1a3", "Susd2", "Pappa", "Slc19a3", "Triobp", "C3", "Vwa1", "Irf8", "Pgm1", "Dbp", "Abi3bp", "Malt1", "Zfpm2", "Ppp1r2", "Lax1", "Gramd1b", "Gm4980", "Gm16617", "Lhfpl2", "Tll1", "Tspan4", "Sash1", "Nphp1", "Adam12", "Ptpn18", "Plekhf1", "Tubb6", "Clca1", "Efna5", "Eml4", "Smad5", "Apc", "Rab11fip3", "Ell", "Rbms3", "Iqgap2", "Cyfip2", "Apobec3", "Nr3c2", "Trim62", "Pbxip1", "Tgm2", "Slco3a1", "Tagln3", "Rem1", "2700086A05Rik", "Pde10a", "Scd2", "Pole", "C230035I16Rik", "Ralgds", "Chrnb1", "Gucy1b3", "Sept6", "Cd300lg", "Nmb", "Ttpal", "Aqp1", "Trps1", "Plcd3", "Lime1", "Fam107b", "Ralgps2", "Vsig10", "Fus", "Neat1", "Tanc2", "Jub", "Ltbp3", "Zcchc14", "Ccbp2", "Map4k2", "9530091C08Rik", "Itpr1", "Hsd3b7", "Thrsp", "Pyroxd2", "Slc25a29", "Nrip1", "Pxn", "Mir1938", "Pygm", "Vars", "Itsn1", "Ttpa", "Rasd1", "Cttnbp2", "Sept1", "Itgb3", "Sbf1", "Parp3", "Nckap1", "Sh3bgrl2", "Snai1", "Slc43a2", "Elmo1", "Cxxc5", "Nr1d2", "Uhrf1bp1l", "Nhsl2", "Itih3", "2210408F21Rik", "Sirpa", "Srpk2", "Adm", "Btbd3", "Smyd2", "Ehd2", "Klf10", "Celf2", "Usp24", "Ephb4", "Vegfb", "Gab2", "Ppp1r14b", "Plekha5", "Gng12", "Chst15", "Itpk1", "Ccrn4l", "Gas2l3", "Nupr1", "Zhx3", "Serinc5", "Ank3", "Zdhhc21", "Gna12", "Ipo11", "Gas6", "Plau", "Tfeb", "Shc1", "Adora2a", "Pacsin2", "Il6ra", "Lgmn", "Sh3pxd2b", "Cd5", "A630001G21Rik", "Wipf1", "Nav3", "Ltc4s", "Galnt1", "Egr1", "Serinc2")
+
+
+
+```
+
+```{r}
+# Cell-type markers from "Epithelial Vegfa Specifies a Distinct Endothelial Population in the Mouse Lung " https://www.sciencedirect.com/science/article/pii/S1534580720300101
+
+ellis_car4 <- c("Car4", "Emp2", "Igfbp7", "Tbx2", "Ednrb", "Apln", "Serpine1", "Pmp22", "AW112010", "Cd24a", "Chst1", "Chst2", "Sirpa", "Itgb5", "Kitl", "Cyp4b1", "Kdr", "Ly6c1", "Ly6a", "Ptp4a3", "43712", "Fibin", "Phlda1", "Tppp3", "Hspb1")
+
+ellis_plvap <- c("Gpihbp1", "Sema3c", "Sparc", "BC028528", "Cd93", "Aplnr", "Wfdc1", "Rgcc", "Kit", "Sox17", "Hmcn1", "Tek", "Plvap", "Prex2", "Cadm1", "Pcdh17", "Gja4", "Car2", "Sparcl1", "Hey1", "Plcb1", "Antxr2", "H2-Q7", "Slc6a6", "Lpl")
+
+ellis_vwf <- c("Mgp", "Vwf", "Fbln5", "Plac8", "Ctsh", "Cpe", "Slc6a2", "Car8", "Adgrg6", "Ltbp4", "Bgn", "Fabp4", "Amigo2", "Eln", "Cytl1", "Fbln2", "Apoe", "Prss23", "Fstl1", "Cthrc1", "Lyve1", "Vegfc", "Ackr3", "Csrp2", "Fabp5")
+
+elis_lymphatic <- c("Mmrn1", "Fxyd6", "Ptx3", "Maf", "Gpm6a", "Scn1b", "Reln", "Lcn2", "Ccl21a", "Nrp2", "Nts", "Gja1", "Cd63", "Tshz2", "Fgl2", "Pvrl2", "Lbp", "Apold1", "S100a6", "Cebpb", "Prkcdbp", "Igfbp5", "Pard6g", "Fos", "Cyr61")
+
+```
+
+```{r}
+# Cell-type markers for Car4-HI EC from "Defining the role of pulmonary endothelial cell heterogeneity in the response to acute " https://elifesciences.org/articles/53072
+
+niethamer_car4 <- c("Igfbp7", "Fibin", "Car4", "Emp2", "Ednrb", "AW112010", "Pmp22", "Ptp4a3", "Ccdc184", "Clu", "Ccdc68", "Chst1", "Tmeff2", "Cd34", "Enho", "Tbx2", "Rprml", "Sept4", "Kdr", "Apln")
+
+```
+
+
+```{r}
+endo_relabeled_markers_positive <- lapply(endo_relabeled_markers, function(x) {filter(x, avg_log2FC > 0 & p_val_adj <= 0.05)})
+
+jaccard_gillich_acap <- lapply(endo_relabeled_markers_positive,
+                             function(x){jaccard(rownames(x),gillich_acap) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+
+jaccard_gillich_gcap <- lapply(endo_relabeled_markers_positive,
+                                       function(x){ jaccard(rownames(x),gillich_gcap) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+jaccard_gillich_artery <- lapply(endo_relabeled_markers_positive,
+                             function(x){ jaccard(rownames(x),gillich_artery) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+jaccard_gillich_vein <- lapply(endo_relabeled_markers_positive,
+                             function(x){ jaccard(rownames(x),gillich_vein) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+
+jaccard_gillich_lymphatic <- lapply(endo_relabeled_markers_positive,
+                                function(x){ jaccard(rownames(x),gillich_lymphatic) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+
+jaccard_ellis_car4 <- lapply(endo_relabeled_markers_positive,
+                                function(x){ jaccard(rownames(x),ellis_car4) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+jaccard_ellis_plvap <- lapply(endo_relabeled_markers_positive,
+                                      function(x){ jaccard(rownames(x),ellis_plvap) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+jaccard_ellis_vwf <- lapply(endo_relabeled_markers_positive,
+                                      function(x){ jaccard(rownames(x),ellis_vwf) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+jaccard_ellis_lymphatic <- lapply(endo_relabeled_markers_positive,
+                            function(x){ jaccard(rownames(x),elis_lymphatic) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+
+jaccard_niethamer_car4 <- lapply(endo_relabeled_markers_positive,
+                            function(x){ jaccard(rownames(x),niethamer_car4) }) %>% do.call(cbind, .) %>% as.data.frame(.)
+
+```
+
+
+```{r}
+
+merged_jaccard <- rbind(jaccard_gillich_acap,
+                        jaccard_gillich_gcap,
+                        jaccard_gillich_artery,
+                        jaccard_gillich_vein,
+                        jaccard_gillich_lymphatic,
+                        jaccard_ellis_car4,
+                        jaccard_ellis_plvap,
+                        jaccard_ellis_vwf,
+                        jaccard_ellis_lymphatic,
+                        jaccard_niethamer_car4
+
+
+)
+
+rownames(merged_jaccard) <- c("Gillich et al. - aCap",
+                              "Gillich et al. - gCap",
+                              "Gillich et al. - Artery",
+                              "Gillich et al. - Vein",
+                              "Gillich et al. - Lymphatic",
+                              "Vila Ellis et al. - Car4",
+                              "Vila Ellis et al. - Plvap",
+                              "Vila Ellis et al. - Vwf",
+                              "Vila Ellis et al. - Lymphatic",
+                              "Niethamer et al. - Car4")
+
+
+colnames(merged_jaccard) <- names(endo_relabeled_markers)
+
+merged_jaccard_norm <- t(apply(merged_jaccard, 1, function(x)(x-min(x))/(max(x)-min(x))))
+
+merged_jaccard_norm_sum <- t(apply(merged_jaccard, 1, function(x)(x)/(sum(x))))
+
+jaccard_heatmap <- ggplot(melt(as.matrix(merged_jaccard_norm)), aes(x = Var2, y = Var1, fill = value, label = round(value, digits = 3))) +
+        geom_tile() +
+        scale_fill_distiller(palette = "Blues", direction = 1, name = "Jaccard Index", trans = "exp") +
+        geom_text(data = melt(as.matrix(merged_jaccard_norm_sum)), aes(x = Var2, y = Var1, label = round(value, digits = 3))) +
+        theme(aspect.ratio = 0.8,
+              panel.grid = element_blank(),
+              axis.title = element_blank(),
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              legend.text = element_text(size = 12),
+              legend.title = element_text(size = 12),
+              axis.text = element_text(size = 12, color = "black"),
+              axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+              )
+
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=jaccard_heatmap, width=unit(8, "cm"), height=unit(12, "cm")))
+ggsave("./data/figures/endo/endo_jaccard_heatmap.pdf",
+       gridExtra::grid.arrange(egg::set_panel_size(p=jaccard_heatmap, width=unit(8, "cm"), height=unit(12, "cm"))),
+       dpi = 300, bg = "transparent",
+       width=unit(6.7, "cm"), height=unit(8, "cm"))
+
+```
+
+# Write anndata for relabeled epi
+```{r}
+writeAnnData <- function(seurat_obj, filename){
+  anndata::AnnData(X = t(GetAssayData(seurat_obj, slot = "data", assay = "SCT")),
+                   var = data.frame(gene = rownames(seurat_obj),
+                                    row.names = rownames(seurat_obj),
+                                    highly_variable = rownames(seurat_obj) %in% VariableFeatures(seurat_obj)
+                   ),
+                   obs = data.frame(celltype = as.character(seurat_obj$celltype),
+                                    louvain = as.character(seurat_obj$seurat_clusters),
+                                    timepoint = as.character(seurat_obj$timepoint),
+                                    condition = as.character(seurat_obj$condition),
+                                    row.names = colnames(seurat_obj)),
+                   obsm = list(X_umap = matrix(Embeddings(seurat_obj, reduction = "umap"), ncol = 2))
+  )$write_h5ad(filename, compression = "gzip")
+}
+
+filename <- "./data/20210802_endo_relabel.h5ad"
+if (!file.exists(filename)) { # Create if doesn't exist
+  writeAnnData(endo_relabel, filename)
+}
+```
+
+```{r}
+endo_relabel$timepoint_numeric <- endo_relabel$timepoint
+levels(endo_relabel$timepoint_numeric) <- 1:length(levels(endo_relabel$timepoint))
+endo_relabel$timepoint_numeric <- as.numeric(endo_relabel$timepoint_numeric)
+
+
+# Code from here: https://github.com/cole-trapnell-lab/monocle3/issues/502
+# create cell dataset, don't worry about the warning
+endo_cds <- monocle3::new_cell_data_set(
+        Seurat::GetAssayData(endo_relabel, assay='RNA', slot='data'),
+        cell_metadata=endo_relabel@meta.data
+)
+
+saveRDS(endo_cds, "./data/20210802_celldataset_endo_relabel.rds", compress = "bzip2")
+```
+
+
+
+## Calculate mean and SD based on the four mice..
+```{r}
+cell_ident_df <- data.frame(timepoint = endo_relabel$timepoint,
+                            cluster = endo_relabel$celltype,
+                            antibody = endo_relabel$HTO_antibody)
+prop_detail_df <- melt(round(prop.table(table(cell_ident_df$timepoint, cell_ident_df$cluster), 1) * 100, 1))
+colnames(prop_detail_df) <- c("timept", "celltype", "mean")
+
+prop_by_mouse <- lapply(as.character(unique(endo_relabel$timepoint)), function(timept){
+
+  filt_by_timept <- filter(cell_ident_df, timepoint == timept) %>% as.data.frame()
+  one_timept_vals <- melt(round(prop.table(table(filt_by_timept$timepoint, filt_by_timept$cluster), 1) * 100, 1)[timept,])
+
+  # Handle E12, no antibodies
+  if (timept == "E12") {
+    out <- data.frame(timepoint = rep(timept, length(unique(unique(cell_ident_df$cluster)))),
+                      celltype = rownames(one_timept_vals),
+                      mean = one_timept_vals$value,
+                      SD = rep(0, length(unique(unique(cell_ident_df$cluster)))),
+                      SEM = rep(0, length(unique(unique(cell_ident_df$cluster))))
+    )
+    return(out)
+  } else {
+    one_timept_res <- lapply(unique(endo_relabel$HTO_antibody[endo_relabel$timepoint == timept]), function(ab){
+      filt_by_timept <- filter(cell_ident_df, timepoint == timept & antibody == ab) %>% as.data.frame()
+      one_timept_vals <- melt(round(prop.table(table(filt_by_timept$timepoint, filt_by_timept$cluster), 1) * 100, 1)[timept,])
+    }) %>% do.call(cbind, .)
+
+    out <- data.frame(timepoint = rep(timept, length(unique(unique(cell_ident_df$cluster)))),
+                      celltype = rownames(one_timept_vals),
+                      mean = rowMeans(one_timept_res),
+                      SD = apply(one_timept_res, 1, sd),
+                      SEM = apply(one_timept_res, 1, function(x) sd(x)/sqrt(length(x))))
+    return(out)
+  }
+}) %>% do.call(rbind, .)
+
+endo_celltype_order <- c("Arterial maEC",
+                         "Venous maEC",
+                         "Prolif. gCap",
+                         "gCap",
+                         "aCap",
+                         "Lymphatic"
+)
+
+prop_by_mouse$celltype <- ordered(as.factor(prop_by_mouse$celltype), endo_celltype_order)
+
+```
+
+```{r}
+
+cumulitive_prop_by_mouse <- prop_by_mouse %>% group_by(timepoint) %>% arrange(celltype) %>% mutate(cs = rev(cumsum(rev(mean))))
+cumulitive_prop_by_mouse$timepoint <- ordered(as.factor(cumulitive_prop_by_mouse$timepoint), c("E12", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14"))
+prop_by_mouse$timepoint <- ordered(as.factor(prop_by_mouse$timepoint), c("E12", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14"))
+
+endo_mountain_plot <- ggplot() +
+        geom_area(data = prop_by_mouse,
+                  aes(group = as.factor(celltype), color = as.factor(celltype), fill = as.factor(celltype), y=mean, x=as.factor(timepoint))) +
+        #geom_point(data = cumulitive_prop_by_mouse,
+        #           aes(group = as.factor(celltype), color = as.factor(celltype), fill = as.factor(celltype), y=cs, x=as.factor(timepoint))) +
+        geom_errorbar(data = cumulitive_prop_by_mouse,
+                      aes(ymin=cs-SEM, ymax=cs+SEM, y=cs, x=as.factor(timepoint)), width=.1, color = "#4B4B4B", alpha = 0.8) +
+        xlab("Day") +
+        ylab("% of cells") +
+        labs(fill = "Cluster", color = "Cluster", group = "Cluster") +
+        scale_colour_manual(aesthetics = c("color", "fill"), values=color_category_20) +
+        theme(legend.key = element_blank(),
+              legend.text = element_markdown(size=14),
+              legend.title = element_text(size=14),
+              axis.text.x  = element_text(size=14, color = "black"),
+              axis.text.y = element_text(size=14, color = "black"),
+              axis.title.x = element_text(size=14),
+              axis.title.y = element_text(size=14),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.background = element_rect(fill = "white")
+        ) +
+        scale_x_discrete(expand = c(.01, .01)) +
+        scale_y_continuous(expand = c(.01,.01)) +
+        coord_fixed(0.05)
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=endo_mountain_plot, width=unit(10, "cm"), height=unit(10, "cm")))
+
+ggsave("./data/figures/endo/endo_mountains.pdf",
+       egg::set_panel_size(p=endo_mountain_plot, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(7, "cm"), height=unit(5, "cm"))
+
+```
+
+
+
+```{r}
+kdr_plot <- FeaturePlot(endo_relabel, "Kdr") +
+        featureplot_theme() +
+        theme(aspect.ratio=1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent")) +
+        scale_color_viridis(name = "Expression", direction = -1)
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=kdr_plot, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/endo/endo_kdr_plot.png",
+       egg::set_panel_size(p=kdr_plot, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+```
+
+```{r}
+kdr_plot <- FeaturePlot(endo_relabel, "Car4") +
+        featureplot_theme() +
+        theme(aspect.ratio=1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent")) +
+        scale_color_viridis(name = "Expression", direction = -1)
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=kdr_plot, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/endo/endo_car4_plot.png",
+       egg::set_panel_size(p=kdr_plot, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+```

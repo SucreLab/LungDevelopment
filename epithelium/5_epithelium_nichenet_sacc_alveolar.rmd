@@ -1,0 +1,155 @@
+---
+title: "scSEQ analysis of the developing epithelium"
+author: Nick Negretti
+date: 08/09/21
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung epithelium
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE, load-libraries}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+#source("./helper_functions/libraries.R")
+library(monocle3)
+library(tidyverse)
+library(knitr) # for kable
+options(knitr.table.format = "html")
+library(kableExtra) # for pretty tables kable_styling()
+library(openxlsx)
+library(nichenetr)
+library(patchwork)
+library(Seurat)
+library(RColorBrewer)
+library(cowplot)
+library(ggpubr)
+#library(future)
+#library(future.apply)
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+#N_WORKERS <- 4
+#plan("multiprocess", workers = N_WORKERS)
+
+```
+
+## Load data from merge and clean pipeline
+```{r}
+merged_seurat <- readRDS("./data/20120802_merged_devodata_sct.rds")
+merged_seurat$timepoint <- ordered(as.factor(merged_seurat$timepoint),
+                                   c("E12", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14"))
+
+
+merged_seurat_subset <- subset(merged_seurat, timepoint %in% c("E18", "P0", "P3", "P7", "P14"))
+merged_seurat_subset$stage <- ""
+merged_seurat_subset$stage[merged_seurat_subset$timepoint %in% c("E18", "P0", "P3")] <- "Saccular"
+merged_seurat_subset$stage[merged_seurat_subset$timepoint %in% c("P7", "P14")] <- "Alveolar"
+
+```
+
+```{r}
+ligand_target_matrix = base::readRDS(url("https://zenodo.org/record/3260758/files/ligand_target_matrix.rds"))
+lr_network = base::readRDS(url("https://zenodo.org/record/3260758/files/lr_network.rds"))
+weighted_networks = base::readRDS(url("https://zenodo.org/record/3260758/files/weighted_networks.rds"))
+
+```
+
+```{r}
+quickMakeNichenetOutput <- function(celltype_of_interest){
+  print(celltype_of_interest)
+  ###
+  if (file.exists(paste0("./data/figures/nichenet/",celltype_of_interest,".pdf"))){ return() }
+
+  nichenet_output = nichenet_seuratobj_aggregate(
+          seurat_obj = merged_seurat_subset,
+          receiver = celltype_of_interest,
+          condition_colname = "stage", condition_oi = "Alveolar", condition_reference = "Saccular",
+          sender = unique(merged_seurat_subset$celltype[merged_seurat_subset$celltype != celltype_of_interest]),
+          ligand_target_matrix = ligand_target_matrix, lr_network = lr_network, weighted_networks = weighted_networks, organism = "mouse",
+          expression_pct = 0.10, lfc_cutoff = 0.25
+  )
+  ##
+
+
+  no_cat_of_interest <- subset(merged_seurat_subset,
+                               celltype %in% unique(merged_seurat_subset$celltype[merged_seurat_subset$celltype != celltype_of_interest]))
+
+  Idents(no_cat_of_interest) <- no_cat_of_interest$celltype
+  exp <- AverageExpression(no_cat_of_interest, slot = "data", assays = "SCT", group.by = "ident", features = nichenet_output$top_ligands %>% rev())$SCT
+
+  colnames(exp) <- str_replace_all(colnames(exp), " ", ".")
+  colnames(exp) <- str_replace_all(colnames(exp), "\\+", "")
+
+  ##
+  ligand_pearson_matrix = nichenet_output$ligand_activities %>% select(pearson) %>% as.matrix() %>% magrittr::set_rownames(nichenet_output$ligand_activities$test_ligand)
+
+  vis_ligand_pearson = ligand_pearson_matrix[nichenet_output$top_ligands %>% rev(), ] %>% as.matrix(ncol = 1) %>% magrittr::set_colnames("Pearson")
+
+  p_ligand_pearson = vis_ligand_pearson %>% make_heatmap_ggplot("Ligands","Ligand activity", color = "darkorange",legend_position = "top", x_axis_position = "top", legend_title = "Pearson correlation coefficient\ntarget gene prediction ability)")
+  print(p_ligand_pearson)
+
+
+  color = colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(100)
+  p_ligand_who_expressing = log1p(exp) %>% make_heatmap_ggplot("Ligand","Celltype",
+                                                               color = color[100],
+                                                               legend_position = "top",
+                                                               x_axis_position = "top",
+                                                               legend_title = "Expression\n(averaged over\nsingle cells)",
+                                                               y_axis = FALSE
+  ) + theme(axis.text.y = element_text(face = "italic"))
+  print(p_ligand_who_expressing)
+
+  ##
+  figures_without_legend <- plot_grid(
+          p_ligand_pearson + theme(legend.position = "none",
+                                   axis.ticks = element_blank(),
+                                   axis.title.x = element_text(),
+                                   plot.margin = unit(c(0,0,0,0), "cm")
+          ),
+          p_ligand_who_expressing + theme(legend.position = "none",
+                                          axis.ticks = element_blank(),
+                                          #axis.text.y = element_blank(),
+                                          axis.title.x = element_text(),
+                                          plot.margin = unit(c(0,0,0,0), "cm")
+          ) + ylab(""),
+          nichenet_output$ligand_target_heatmap + theme(legend.position = "none",
+                                                        axis.ticks = element_blank(),
+                                                        plot.margin = unit(c(0,0,0,0), "cm")) + ylab(""),
+          align = "hv",
+          nrow = 1,
+          rel_widths = c(ncol(vis_ligand_pearson) + 6, ncol(log1p(exp)), ncol(nichenet_output$ligand_target_matrix)) -2)
+  figures_without_legend
+
+  legends = plot_grid(
+          NULL,
+          as_ggplot(get_legend(p_ligand_pearson)),
+          NULL,
+          as_ggplot(get_legend(p_ligand_who_expressing)),
+          NULL,
+          as_ggplot(get_legend(nichenet_output$ligand_target_heatmap)),
+          NULL,
+          nrow = 1,
+          align = "h", scale = 1)
+  legends
+
+  plots_out <- plot_grid(figures_without_legend,
+                         legends,
+                         rel_heights = c(10,2), nrow = 2, align = "hv")
+  print(plots_out)
+
+  ggsave(paste0("./data/figures/nichenet/",celltype_of_interest,".pdf"), plots_out, width = 18)
+
+
+}
+```
+```{r}
+lapply(unique(merged_seurat$celltype)[unique(merged_seurat$celltype) != "Neuroendocrine"], quickMakeNichenetOutput)
+```

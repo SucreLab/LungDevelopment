@@ -9,9 +9,6 @@ color_scanpy_viridis20 <- c("#023fa5", "#7d87b9", "#bec1d4", "#d6bcc0", "#bb7784
 color_category_20 <- c("#1f77b4", "#aec7e8", "#ff7f0e", "#ffbb78", "#2ca02c", "#98df8a", "#d62728", "#ff9896", "#9467bd",
                        "#c5b0d5", "#8c564b", "#c49c94", "#e377c2", "#f7b6d2", "#7f7f7f", "#c7c7c7", "#bcbd22", "#dbdb8d", "#17becf", "#9edae5")
 
-#color_category_20 <- c("#aec7e8", "#1f77b4",  "#ffbb78", "#ff7f0e","#98df8a", "#2ca02c", "#d62728", "#ff9896", "#9467bd",
- #                      "#c5b0d5", "#8c564b", "#c49c94", "#e377c2", "#f7b6d2", "#7f7f7f", "#c7c7c7", "#bcbd22", "#dbdb8d", "#17becf", "#9edae5")
-
 
 umap_theme <- function(){
   theme_grey() %+replace%

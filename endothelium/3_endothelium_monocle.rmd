@@ -1,0 +1,88 @@
+---
+title: "scSEQ analysis of the developing epithelium"
+author: Nick Negretti
+date: 08/09/21
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung epithelium
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+#source("./helper_functions/libraries.R")
+library(monocle3)
+library(knitr) # for kable
+options(knitr.table.format = "html")
+library(kableExtra) # for pretty tables kable_styling()
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+endo_cds <- readRDS("./data/20210802_celldataset_endo_relabel.rds")
+endo_cds
+celltypes <- c("Arterial maEC",
+               "Venous maEC",
+               "Prolif. gCap",
+               "gCap",
+               "aCap",
+               "Lymphatic"
+)
+
+
+```
+
+```{r}
+
+##
+gene_fits_art_maEC <- fit_models(endo_cds[,endo_cds@colData$celltype == "Arterial maEC"], model_formula_str = "~timepoint_numeric", cores = 10)
+fit_coefs_art_maEC <- coefficient_table(gene_fits_art_maEC)
+filt_fits_art_maEC <- fit_coefs_art_maEC %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_art_maEC, "./data/20210802_endo_filt_fits_art_maEC.rds")
+gc()
+
+
+##
+gene_fits_ven_maEC <- fit_models(endo_cds[,endo_cds@colData$celltype == "Venous maEC"], model_formula_str = "~timepoint_numeric", cores = 1)
+fit_coefs_ven_maEC <- coefficient_table(gene_fits_ven_maEC)
+filt_fits_ven_maEC <- fit_coefs_ven_maEC %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_ven_maEC, "./data/20210802_endo_filt_fits_ven_maEC.rds")
+gc()
+
+##
+gene_fits_prolif_gcap <- fit_models(endo_cds[,endo_cds@colData$celltype == "Prolif. gCap"], model_formula_str = "~timepoint_numeric", cores = 10)
+fit_coefs_prolif_gcap <- coefficient_table(gene_fits_prolif_gcap)
+filt_fits_prolif_gcap <- fit_coefs_prolif_gcap %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_prolif_gcap, "./data/20210802_endo_filt_fits_prolif_gcap.rds")
+gc()
+
+##
+gene_fits_gcap <- fit_models(endo_cds[,endo_cds@colData$celltype == "gCap"], model_formula_str = "~timepoint_numeric", cores = 10)
+fit_coefs_gcap <- coefficient_table(gene_fits_gcap)
+filt_fits_gcap <- fit_coefs_gcap %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_gcap, "./data/20210802_endo_filt_fits_gcap.rds")
+gc()
+
+##
+gene_fits_acap <- fit_models(endo_cds[,endo_cds@colData$celltype == "aCap"], model_formula_str = "~timepoint_numeric", cores = 10)
+fit_coefs_acap <- coefficient_table(gene_fits_acap)
+filt_fits_acap <- fit_coefs_acap %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_acap, "./data/20210802_endo_filt_fits_acap.rds")
+gc()
+
+
+gene_fits_lymphatic <- fit_models(endo_cds[,endo_cds@colData$celltype == "Lymphatic"], model_formula_str = "~timepoint_numeric", cores = 10)
+fit_coefs_lymphatic <- coefficient_table(gene_fits_lymphatic)
+filt_fits_lymphatic <- fit_coefs_lymphatic %>% dplyr::filter(term == "timepoint_numeric") %>% dplyr::select(gene_id, term, q_value, estimate)
+saveRDS(filt_fits_lymphatic, "./data/20210802_meso_filt_fits_lymphatic.rds")
+gc()
+
+
+```

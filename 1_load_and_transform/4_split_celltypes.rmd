@@ -1,0 +1,127 @@
+---
+title: "scSEQ analysis of developing lung cells - revision"
+author: Nick Negretti
+date: 8/2/21
+output: rmarkdown::github_document
+---
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE, load-libraries}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+```
+
+# Load merged object
+```{r}
+devo_data <- readRDS("./data/20210802_merged_devo_data_sct.rds")
+```
+
+
+```{r}
+marker_genes <- c("Hbb-bs", "Epcam", "Foxj1", "Scgb1a1", "Scgb3a2", "Abca3", "Hopx", "Col1a1", "Dcn", "Lum", "Acta2", "Wnt2", "Wnt5a", "Lgr6", "Pdgfra", "Pdgfrb", "Cspg4", "Wt1", "Pecam1", "Ccl21a", "Vwf", "Nrg1", "Plvap", "Car4", "Mki67", "Tnnt2", "Myl7", "Ascl1", "Ptprc")
+DotPlot(devo_data, features = marker_genes) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+```{r}
+DimPlot(devo_data, label = TRUE)
+```
+
+```{r}
+rbc_idents <- c(27)
+immune_idents <- c(34)
+low_quality <- c(22)
+neuron_idents <- c(36)
+epi_idents <- c(13, 16, 17, 23, 28, 31, 38, 39)
+meso_idents <- c(1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 14, 19, 20, 22, 25, 26, 29, 32, 35, 37, 40)
+endo_idents <- c(0, 8, 15, 18, 21, 24, 30, 33)
+
+setdiff(0:40, c(rbc_idents, epi_idents, meso_idents, endo_idents,neuron_idents, immune_idents)) # What is missing
+#22? 36?
+c(rbc_idents, epi_idents, meso_idents, endo_idents,neuron_idents, immune_idents)[duplicated(c(rbc_idents, epi_idents, meso_idents, endo_idents,neuron_idents, immune_idents))] # Any duplicated assignments?
+
+```
+
+```{r}
+clust_34_markers <- FindMarkers(devo_data, 34, NULL)
+clust_34_markers$gene <- rownames(clust_34_markers)  # Workaround for print issue
+clust_34_markers
+```
+
+```{r}
+clust_22_markers %<-% { FindMarkers(devo_data, 22, NULL) }
+clust_36_markers %<-% { FindMarkers(devo_data, 36, NULL) }
+```
+
+
+```{r}
+clust_22_markers$gene <- rownames(clust_22_markers)  # Workaround for print issue
+clust_22_markers
+```
+
+
+```{r}
+clust_36_markers$gene <- rownames(clust_36_markers)  # Workaround for print issue
+clust_36_markers
+```
+
+```{r}
+
+epi <- subset(devo_data, idents = epi_idents)
+meso <- subset(devo_data, idents = meso_idents)
+endo <- subset(devo_data, idents = endo_idents)
+
+saveRDS(epi, "./data/20210802_epi_devo_data.rds", compress = "bzip2")
+saveRDS(meso, "./data/20210802_meso_devo_data.rds", compress = "bzip2")
+saveRDS(endo, "./data/20210802_endo_devo_data.rds", compress = "bzip2")
+
+```
+
+```{r}
+N_WORKERS <- 16
+plan("multiprocess", workers = N_WORKERS)
+epi <- SCTransform(epi, variable.features.n = 2000,
+                         batch_var = "orig.ident",
+                         conserve.memory = TRUE,
+                         vars.to.regress = c("percent.mt"),
+                         method = 'glmGamPoi',
+                         ncells = NULL)
+epi <- cluster_pca_umap(epi, dims_umap = 1:35, dims_neighbors = 1:35, cluster_res = 0.6)
+saveRDS(epi, "./data/20210802_epi_devo_data_sct.rds", compress = "bzip2")
+```
+
+```{r}
+N_WORKERS <- 20
+plan("multiprocess", workers = N_WORKERS)
+meso <- SCTransform(meso, variable.features.n = 2000,
+                   batch_var = "orig.ident",
+                   conserve.memory = TRUE,
+                   vars.to.regress = c("percent.mt"),
+                   method = 'glmGamPoi',
+                   ncells = NULL)
+meso <- cluster_pca_umap(meso, dims_umap = 1:35, dims_neighbors = 1:35, cluster_res = 0.6)
+saveRDS(meso, "./data/20210802_meso_devo_data_sct.rds", compress = "bzip2")
+```
+
+```{r}
+endo <- SCTransform(endo, variable.features.n = 2000,
+                   batch_var = "orig.ident",
+                   conserve.memory = TRUE,
+                   vars.to.regress = c("percent.mt"),
+                   method = 'glmGamPoi',
+                   ncells = NULL)
+endo <- cluster_pca_umap(endo, dims_umap = 1:35, dims_neighbors = 1:35, cluster_res = 0.6)
+saveRDS(endo, "./data/20210802_endo_devo_data_sct.rds", compress = "bzip2")
+```
