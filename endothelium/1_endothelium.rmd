@@ -27,7 +27,7 @@ plan("multiprocess", workers = N_WORKERS)
 ```
 ## Load data from merge and clean pipeline
 ```{r}
-endo_from_split <- readRDS("./data/20210802_endo_devo_data_sct.rds")
+endo_from_split <- readRDS("./data/20221020_endo_devo_data_sct.rds")
 endo_from_split$HTO_HTO_classification.global[is.na(endo_from_split$HTO_HTO_classification.global)] <- "Undefined"
 endo <- subset(endo_from_split, HTO_HTO_classification.global != "Doublet")
 ```
@@ -224,7 +224,7 @@ p_cluster + p_time + plot_annotation("Endothleium")
 
 ```{r}
 plan("multiprocess", workers = N_WORKERS)
-filename <- "./data/20210802_endo_devo_data_sct_labeled.rds"
+filename <- "./data/20221020_endo_devo_data_sct_labeled.rds"
 if (!file.exists(filename)) {
   saveRDS(endo_relabel, filename, compress = "bzip2")
 }

@@ -453,6 +453,7 @@ p_timepoint_umap <- ggplot() + umap_theme() +
 
 p_timepoint_umap
 
+
 gridExtra::grid.arrange(egg::set_panel_size(p=p_timepoint_umap, width=unit(10, "cm"), height=unit(10, "cm")))
 ggsave("./data/figures/epi/zepp_merge_timepoint.pdf",
        egg::set_panel_size(p=p_timepoint_umap, width=unit(10, "cm"), height=unit(10, "cm")),
@@ -474,6 +475,10 @@ p_timepoint_umap <- ggplot() + umap_theme() +
 
 p_timepoint_umap
 
+ggsave("./data/figures/epi/zepp_merge_timepoint_ppt.pdf",
+       p_timepoint_umap,
+       bg = "transparent")
+
 gridExtra::grid.arrange(egg::set_panel_size(p=p_timepoint_umap, width=unit(10, "cm"), height=unit(10, "cm")))
 ggsave("./data/figures/epi/zepp_merge_timepoint.pdf",
        egg::set_panel_size(p=p_timepoint_umap, width=unit(10, "cm"), height=unit(10, "cm")),
@@ -482,8 +487,11 @@ ggsave("./data/figures/epi/zepp_merge_timepoint.pdf",
 ```
 
 ```{r}
+set.seed(4242)
+rows <- sample(nrow(data_integrated_relabel))
+
 p_lab_umap <- ggplot() + umap_theme() +
-        ggrastr::rasterise(geom_point(data = data_integrated_relabel, aes(x = x, y = y, color = lab), size = .05), dpi = 600) +
+        ggrastr::rasterise(geom_point(data = fortify.Seurat(data_integrated_relabel), aes(x = x, y = y, color = lab), size = .01), dpi = 600) +
         scale_colour_manual(name = "Study", values = color_scanpy_default,
                             guide = guide_legend(override.aes = list(size=3), order = 1),
                             labels = c( "Negretti et al.", "Zepp et al.")
@@ -494,6 +502,12 @@ p_lab_umap <- ggplot() + umap_theme() +
               panel.background = element_rect(fill = "transparent", colour = "black"),
               plot.background = element_rect(color = "transparent", fill = "transparent")) +
         ylab("UMAP2") + xlab("UMAP1")
+
+p_lab_umap
+
+ggsave("./data/figures/epi/zepp_merge_lab_ppt.pdf",
+       p_lab_umap,
+       bg = "transparent")
 
 gridExtra::grid.arrange(egg::set_panel_size(p=p_lab_umap, width=unit(10, "cm"), height=unit(10, "cm")))
 ggsave("./data/figures/epi/zepp_merge_lab.pdf",

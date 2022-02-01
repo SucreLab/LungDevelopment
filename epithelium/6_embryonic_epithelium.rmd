@@ -1,0 +1,381 @@
+---
+title: "scSEQ analysis of the developing epithelium"
+author: Nick Negretti
+date: 08/09/21
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung epithelium
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE, load-libraries}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+
+```
+
+## Load data from merge and clean pipeline
+```{r}
+epi_relabel <- readRDS("./data/20210802_epi_devo_data_sct_labeled.rds")
+epi_relabel
+
+levels(epi_relabel$celltype)[levels(epi_relabel$celltype) == "Cilliated"] <- "Ciliated"
+
+epi_relabel$celltype <- ordered(as.factor(epi_relabel$celltype),
+                                c("Early Epithelium",
+                                  "Transitional",
+                                  "AT1",
+                                  "AT2",
+                                  "Mki67+ AT2",
+                                  "Ciliated",
+                                  "Secretory",
+                                  "Neuroendocrine"
+                                ))
+
+epi_embryonic <- subset(epi_relabel, timepoint %in% c("E12", "E15", "E16", "E18"))
+```
+
+Re-run SCT for more accurate variable gene finding
+```{r}
+epi_embryonic <- SCTransform(epi_embryonic, variable.features.n = 2000,
+                             batch_var = "orig.ident",
+                             conserve.memory = TRUE,
+                             vars.to.regress = c("percent.mt"),
+                             method = 'glmGamPoi',
+                             ncells = NULL)
+```
+
+```{r}
+
+# Make the tiempoints an ordered factor, so they are displayed consistantly
+epi_embryonic$timepoint <- ordered(as.factor(epi_embryonic$timepoint), unique(epi_embryonic$timepoint))
+
+epi_embryonic <- cluster_pca_umap(epi_embryonic, k_param = 5, dims_umap = 1:25, dims_neighbors = 1:20, cluster_res = 0.2,
+                                  umap_neighbors = 10)
+
+p_cluster <- DimPlot(epi_embryonic) + umap_theme() +
+        scale_colour_manual(name = "Louvain Cluster", values = color_category_20) +
+        theme(aspect.ratio=1)
+p_time <- DimPlot(epi_embryonic, group.by = "timepoint") + umap_theme() +
+        scale_colour_manual(name = "Timepoint", values = color_scanpy_default)+
+        theme(aspect.ratio=1)
+p_celltype <- DimPlot(epi_embryonic, group.by = "celltype") + umap_theme() +
+        scale_colour_manual(name = "Celltype", values = color_scanpy_default)+
+        theme(aspect.ratio=1)
+p_celltype
+
+p_cluster + p_time + p_celltype + plot_annotation("Embryonic Epithelium")
+```
+
+
+```{r}
+cdkn1a_fp <- FeaturePlot(epi_embryonic, features = "Cdkn1a") + theme(aspect.ratio = 1)
+p_cluster + cdkn1a_fp
+```
+
+
+```{r}
+clust_markers <- FindMarkers(epi_embryonic, 5, NULL)
+clust_markers$gene <- rownames(clust_markers)  # Workaround for print issue
+clust_markers
+```
+
+```{r}
+epi_embryonic$louvain <- Idents(epi_embryonic)
+epi_embryonic$celltype <- Idents(epi_embryonic)
+```
+
+```{r}
+marker_genes <- c("Sftpa1", "Sftpc", # AT2
+                  "Hopx", "Aqp5", #AT1
+                  "Foxj1", "Dynlrb2", # Ciliated
+                  "Mdk", "Mki67", # Primordial
+                  "Scgb1a1", "Scgb3a2", # Secretory
+                  "Cdkn1a", "Krt8", # Transitional
+                  "Ascl1", "Scg5" #Neuroendocrine
+)
+DotPlot(epi_embryonic, features = marker_genes)
+
+```
+```{r}
+epi_embryonic_relabeled <- epi_embryonic
+idxes <- rep("", length(unique(Idents(epi_embryonic))))
+idxes[c(4) + 1] <- "AT2"
+idxes[c(6) + 1] <- "Transitional"
+idxes[c(1) + 1] <- "AT1"
+idxes[c(7) + 1] <- "Ciliated"
+idxes[c(3) + 1] <- "Secretory"
+idxes[c(5) + 1] <- "Neuroendocrine"
+idxes[c(0, 2) + 1] <- "Early Epithelium"
+
+
+levels(epi_embryonic_relabeled$celltype) <- idxes
+
+epi_embryonic_relabeled$celltype <- ordered(as.factor(epi_embryonic_relabeled$celltype),
+                                c("Early Epithelium",
+                                  "Transitional",
+                                  "AT1",
+                                  "AT2",
+                                  "Ciliated",
+                                  "Secretory",
+                                  "Neuroendocrine"
+                                ))
+
+filename <- "./data/20210802_epi_prenatal_labeled_markers.rds"
+if (!file.exists(filename)) {
+  saveRDS(epi_embryonic_relabeled, filename, compress = "bzip2")
+} else {
+  epi_embryonic_relabeled <- readRDS(filename)
+}
+
+```
+
+```{r}
+
+p_embryonic_cluster <- ggplot() + umap_theme() +
+  ggrastr::rasterise(geom_point(data = epi_embryonic_relabeled, aes(x = x, y = y, color = celltype), size = .1), dpi = 600) +
+  scale_colour_manual(name = "Cluster", values = color_category_20[c(1, 2, 3, 4, 6, 7, 8)], guide = guide_legend(override.aes = list(size=3), order = 1)) +
+  theme(aspect.ratio=1,
+        legend.text=element_text(size=12),
+        legend.title=element_text(size=12),
+        panel.background = element_rect(fill = "transparent", colour = "black"),
+        plot.background = element_rect(color = "transparent", fill = "transparent")) +
+  labs(x = "UMAP_1", y = "UMAP_2")
+
+gridExtra::grid.arrange(egg::set_panel_size(p=p_embryonic_cluster, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/epi/prenatal_labeled_umap.pdf",
+       egg::set_panel_size(p=p_embryonic_cluster, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+```
+
+```{r}
+prenatal_cdkn1a_plot <- FeaturePlot(epi_embryonic_relabeled, "Cdkn1a") +
+  featureplot_theme() +
+  theme(aspect.ratio=1,
+        panel.background = element_rect(fill = "transparent", colour = "black"),
+        plot.background = element_rect(color = "transparent", fill = "transparent"),
+        plot.title = element_text(face = "italic")
+  ) +
+  scale_color_viridis(name = "Expression", direction = -1)
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=prenatal_cdkn1a_plot, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/epi/prenatal_cdkn1a_umap.png",
+       egg::set_panel_size(p=prenatal_cdkn1a_plot, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+```
+
+```{r}
+epi_postnatal <- subset(epi_relabel, timepoint %in% c("P0", "P3", "P5", "P7", "P14"))
+```
+
+
+```{r}
+epi_postnatal <- SCTransform(epi_postnatal, variable.features.n = 2000,
+                             batch_var = "orig.ident",
+                             conserve.memory = TRUE,
+                             vars.to.regress = c("percent.mt"),
+                             method = 'glmGamPoi',
+                             ncells = NULL)
+```
+
+```{r}
+
+var_feat_backup <- VariableFeatures(epi_postnatal)
+# Lyz1 appears to be a non-biologically relevant discriminator of AT2 cells in mice.
+VariableFeatures(epi_postnatal) <- VariableFeatures(epi_postnatal)[VariableFeatures(epi_postnatal) != "Lyz1"]
+# Make the tiempoints an ordered factor, so they are displayed consistantly
+epi_postnatal$timepoint <- ordered(as.factor(epi_postnatal$timepoint), unique(epi_postnatal$timepoint))
+
+epi_postnatal <- cluster_pca_umap(epi_postnatal, k_param = 10, dims_umap = 1:10, dims_neighbors = 1:25, cluster_res = 0.25,
+                                  umap_neighbors = 10)
+
+```
+
+```{r}
+p_cluster <- DimPlot(epi_postnatal) + umap_theme() +
+  scale_colour_manual(name = "Louvain Cluster", values = color_category_20) +
+  theme(aspect.ratio=1)
+p_time <- DimPlot(epi_postnatal, group.by = "timepoint") + umap_theme() +
+  scale_colour_manual(name = "Timepoint", values = color_category_20[5:length(color_category_20)])+
+  theme(aspect.ratio=1)
+cdkn1a_fp_postnatal <- FeaturePlot(epi_postnatal, features = "Cdkn1a") + theme(aspect.ratio = 1)
+p_celltype <- DimPlot(epi_postnatal, group.by = "celltype") + umap_theme() +
+  scale_colour_manual(name = "Celltype", values = color_scanpy_default)+
+  theme(aspect.ratio=1)
+p_celltype
+
+p_cluster + cdkn1a_fp_postnatal + p_celltype + plot_annotation("Embryonic Epithelium")
+```
+
+```{r}
+p_time
+```
+
+```{r}
+marker_genes <- c("Sftpa1", "Sftpc", # AT2
+                  "Hopx", "Aqp5", #AT1
+                  "Foxj1", "Dynlrb2", # Ciliated
+                  "Mdk", "Mki67", # Primordial
+                  "Scgb1a1", "Scgb3a2", # Secretory
+                  "Cdkn1a", "Krt8", # Transitional
+                  "Ascl1", "Scg5" #Neuroendocrine
+)
+DotPlot(epi_postnatal, features = marker_genes)
+
+```
+
+```{r}
+epi_postnatal_relabeled <- epi_postnatal
+epi_postnatal_relabeled$louvain <- Idents(epi_postnatal)
+epi_postnatal_relabeled$celltype <- Idents(epi_postnatal)
+idxes <- rep("", length(unique(Idents(epi_postnatal))))
+idxes[c(0, 1, 4, 5, 7) + 1] <- "AT2"
+idxes[c(8) + 1] <- "Mki67+ AT2"
+idxes[c(10) + 1] <- "Transitional"
+idxes[c(2, 9) + 1] <- "AT1"
+idxes[c(3) + 1] <- "Ciliated"
+idxes[c(6) + 1] <- "Secretory"
+idxes[c(11) + 1] <- "Neuroendocrine"
+
+
+levels(epi_postnatal_relabeled$celltype) <- idxes
+
+epi_postnatal_relabeled$celltype <- ordered(as.factor(epi_postnatal_relabeled$celltype), c(
+                                              "Transitional",
+                                              "AT1",
+                                              "AT2",
+                                              "Mki67+ AT2",
+                                              "Ciliated",
+                                              "Secretory",
+                                              "Neuroendocrine"
+                                            ))
+
+filename <- "./data/20210802_epi_postnatal_labeled_markers.rds"
+if (!file.exists(filename)) {
+  saveRDS(epi_postnatal_relabeled, filename, compress = "bzip2")
+} else {
+  epi_postnatal_relabeled <- readRDS(filename)
+}
+
+```
+
+
+```{r}
+
+p_postnatal_cluster <- ggplot() + umap_theme() +
+  ggrastr::rasterise(geom_point(data = epi_postnatal_relabeled, aes(x = x, y = y, color = celltype), size = .1), dpi = 600) +
+  scale_colour_manual(name = "Epithelium", values = color_category_20[2:length(color_category_20)], guide = guide_legend(override.aes = list(size=3), order = 1)) +
+  theme(aspect.ratio=1,
+        legend.text=element_text(size=12),
+        legend.title=element_text(size=12),
+        panel.background = element_rect(fill = "transparent", colour = "black"),
+        plot.background = element_rect(color = "transparent", fill = "transparent")) +
+  labs(x = "UMAP_1", y = "UMAP_2")
+
+gridExtra::grid.arrange(egg::set_panel_size(p=p_postnatal_cluster, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/epi/postnatal_labeled_umap.pdf",
+       egg::set_panel_size(p=p_postnatal_cluster, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+```
+
+```{r}
+postnatal_cdkn1a_plot <- FeaturePlot(epi_postnatal_relabeled, "Cdkn1a") +
+  featureplot_theme() +
+  theme(aspect.ratio=1,
+        panel.background = element_rect(fill = "transparent", colour = "black"),
+        plot.background = element_rect(color = "transparent", fill = "transparent"),
+        plot.title = element_text(face = "italic")
+  ) +
+  scale_color_viridis(name = "Expression", direction = -1)
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=postnatal_cdkn1a_plot, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/epi/postnatal_cdkn1a_umap.png",
+       egg::set_panel_size(p=postnatal_cdkn1a_plot, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
+```
+
+```{r}
+marker_genes <- c("Mdk", "Mki67", # Early Epithelium
+                  "Cdkn1a", "Krt8", # Transitional?
+                  "Hopx", "Aqp5", #AT1
+                  "Sftpa1", "Sftpc", # AT2
+                  "Foxj1", "Dynlrb2", # Ciliated
+                  "Scgb1a1", "Scgb3a2", # Secretory
+                  "Ascl1", "Scg5" #Neuroendocrine
+)
+
+epi_marker_plot <- DotPlot(epi_embryonic_relabeled, features = marker_genes, group.by = "celltype", dot.scale = 8)
+
+epi_marker_plot_w_theme <- epi_marker_plot +
+  scale_color_distiller(palette = "Blues", direction = 1, name = "Expression") +
+  scale_y_discrete(limits=rev) +
+  theme(axis.title = element_blank(),
+        axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 12),
+        aspect.ratio = 1,
+        panel.background = element_rect(fill = "transparent", colour = "black"),
+        plot.background = element_rect(color = "transparent", fill = "transparent"),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 12)
+  )
+
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=epi_marker_plot_w_theme, width=unit(9.5, "cm"), height=unit(7, "cm")))
+ggsave("./data/figures/epi/dotplot_prenatal_markers.pdf",
+       egg::set_panel_size(p=epi_marker_plot_w_theme, width=unit(9.5, "cm"), height=unit(7, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(7, "cm"), height=unit(4, "cm"))
+
+```
+```{r}
+marker_genes <- c("Mdk", "Mki67", # Early Epithelium
+                  "Cdkn1a", "Krt8", # Transitional?
+                  "Hopx", "Aqp5", #AT1
+                  "Sftpa1", "Sftpc", # AT2
+                  "Foxj1", "Dynlrb2", # Ciliated
+                  "Scgb1a1", "Scgb3a2", # Secretory
+                  "Ascl1", "Scg5" #Neuroendocrine
+)
+
+epi_marker_plot <- DotPlot(epi_postnatal_relabeled, features = marker_genes, group.by = "celltype", dot.scale = 8)
+
+epi_marker_plot_w_theme <- epi_marker_plot +
+  scale_color_distiller(palette = "Blues", direction = 1, name = "Expression") +
+  scale_y_discrete(limits=rev) +
+  theme(axis.title = element_blank(),
+        axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 12),
+        aspect.ratio = 1,
+        panel.background = element_rect(fill = "transparent", colour = "black"),
+        plot.background = element_rect(color = "transparent", fill = "transparent"),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 12)
+  )
+
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=epi_marker_plot_w_theme, width=unit(9.5, "cm"), height=unit(7, "cm")))
+ggsave("./data/figures/epi/dotplot_postnatal_markers.pdf",
+       egg::set_panel_size(p=epi_marker_plot_w_theme, width=unit(9.5, "cm"), height=unit(7, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(7, "cm"), height=unit(4, "cm"))
+
+```

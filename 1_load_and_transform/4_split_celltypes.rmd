@@ -26,7 +26,7 @@ plan("multiprocess", workers = N_WORKERS)
 
 # Load merged object
 ```{r}
-devo_data <- readRDS("./data/20210802_merged_devo_data_sct.rds")
+devo_data <- readRDS("./data/20220118_merged_devo_data_sct.rds")
 ```
 
 
@@ -83,9 +83,9 @@ epi <- subset(devo_data, idents = epi_idents)
 meso <- subset(devo_data, idents = meso_idents)
 endo <- subset(devo_data, idents = endo_idents)
 
-saveRDS(epi, "./data/20210802_epi_devo_data.rds", compress = "bzip2")
-saveRDS(meso, "./data/20210802_meso_devo_data.rds", compress = "bzip2")
-saveRDS(endo, "./data/20210802_endo_devo_data.rds", compress = "bzip2")
+saveRDS(epi, "./data/20221020_epi_devo_data.rds", compress = "bzip2")
+saveRDS(meso, "./data/20221020_meso_devo_data.rds", compress = "bzip2")
+saveRDS(endo, "./data/20221020_endo_devo_data.rds", compress = "bzip2")
 
 ```
 
@@ -99,7 +99,7 @@ epi <- SCTransform(epi, variable.features.n = 2000,
                          method = 'glmGamPoi',
                          ncells = NULL)
 epi <- cluster_pca_umap(epi, dims_umap = 1:35, dims_neighbors = 1:35, cluster_res = 0.6)
-saveRDS(epi, "./data/20210802_epi_devo_data_sct.rds", compress = "bzip2")
+saveRDS(epi, "./data/20221020_epi_devo_data_sct.rds", compress = "bzip2")
 ```
 
 ```{r}
@@ -112,7 +112,7 @@ meso <- SCTransform(meso, variable.features.n = 2000,
                    method = 'glmGamPoi',
                    ncells = NULL)
 meso <- cluster_pca_umap(meso, dims_umap = 1:35, dims_neighbors = 1:35, cluster_res = 0.6)
-saveRDS(meso, "./data/20210802_meso_devo_data_sct.rds", compress = "bzip2")
+saveRDS(meso, "./data/20221020_meso_devo_data_sct.rds", compress = "bzip2")
 ```
 
 ```{r}
@@ -123,5 +123,5 @@ endo <- SCTransform(endo, variable.features.n = 2000,
                    method = 'glmGamPoi',
                    ncells = NULL)
 endo <- cluster_pca_umap(endo, dims_umap = 1:35, dims_neighbors = 1:35, cluster_res = 0.6)
-saveRDS(endo, "./data/20210802_endo_devo_data_sct.rds", compress = "bzip2")
+saveRDS(endo, "./data/20221020_endo_devo_data_sct.rds", compress = "bzip2")
 ```

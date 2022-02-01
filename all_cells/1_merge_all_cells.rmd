@@ -29,22 +29,22 @@ plan("multiprocess", workers = N_WORKERS)
 N_WORKERS <- 16
 plan("multiprocess", workers = N_WORKERS)
 
-filename <- "./data/20120802_merged_devodata_sct.rds"
+filename <- "./data/20221020_merged_devodata_sct.rds"
 if (!file.exists(filename)) {
   if (!file.exists(filename)) {
-    epi <- readRDS("./data/20210802_epi_devo_data_sct_labeled.rds")
+    epi <- readRDS("./data/20221020_epi_devo_data_sct_labeled.rds")
     DefaultAssay(epi) <- "RNA"
-    epi <- DietSeurat(epi, assays = "RNA")
+    epi <- DietSeurat(epi, assays = c("RNA", "RAW_COUNTS"))
     epi$bulk_celltype <- "Epithelial"
 
-    endo <- readRDS("./data/20210802_endo_devo_data_sct_labeled.rds")
+    endo <- readRDS("./data/20221020_endo_devo_data_sct_labeled.rds")
     DefaultAssay(endo) <- "RNA"
-    endo <- DietSeurat(endo, assays = "RNA")
+    endo <- DietSeurat(endo, assays = c("RNA", "RAW_COUNTS"))
     endo$bulk_celltype <- "Endothelial"
 
-    meso <- readRDS("./data/20210802_meso_labeled.rds")
+    meso <- readRDS("./data/20221020_meso_labeled.rds")
     DefaultAssay(meso) <- "RNA"
-    meso <- DietSeurat(meso, assays = "RNA")
+    meso <- DietSeurat(meso, assays = c("RNA", "RAW_COUNTS"))
     meso$bulk_celltype <- "Mesenchymal"
 
     merged_seurat <- Reduce(function(x,y){merge(x,y)}, list(epi, endo, meso))
@@ -52,13 +52,13 @@ if (!file.exists(filename)) {
     merged_seurat$cell_subtype <- Idents(merged_seurat)
     merged_seurat$bulk_celltype <- as.factor(merged_seurat$bulk_celltype)
 
-    saveRDS(merged_seurat, "./data/20120802_merged_devodata.rds")
+    saveRDS(merged_seurat, "./data/20221020_merged_devodata.rds")
     rm(epi)
     rm(endo)
     rm(meso)
     gc()
   } else {
-    merged_seurat <- readRDS("./data/20120802_merged_devodata.rds")
+    merged_seurat <- readRDS("./data/20221020_merged_devodata.rds")
   }
 
 

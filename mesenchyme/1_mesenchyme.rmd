@@ -27,7 +27,7 @@ plan("multiprocess", workers = N_WORKERS)
 ```
 ## Load data from merge and clean pipeline
 ```{r}
-meso_from_split <- readRDS("./data/20210802_meso_devo_data_sct.rds")
+meso_from_split <- readRDS("./data/20221020_meso_devo_data_sct.rds")
 meso_from_split$HTO_HTO_classification.global[is.na(meso_from_split$HTO_HTO_classification.global)] <- "Undefined"
 meso <- subset(meso_from_split, HTO_HTO_classification.global != "Doublet")
 ```
@@ -211,7 +211,7 @@ p_cluster + p_time + plot_annotation("Mesenchyme")
 
 
 ```{r}
-filename <- "./data/20210802_meso_labeled.rds"
+filename <- "./data/20221020_meso_labeled.rds"
 if (!file.exists(filename)) {
   saveRDS(meso_relabel, filename, compress = "bzip2")
 } else {

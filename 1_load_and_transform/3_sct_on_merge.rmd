@@ -26,7 +26,7 @@ plan("multiprocess", workers = N_WORKERS)
 
 # Load merged object
 ```{r}
-devo_data <- readRDS("./data/20210802_merged_devo_data.rds")
+devo_data <- readRDS("./data/20220118_merged_devo_data.rds")
 ```
 
 # SCTranform and save
@@ -42,7 +42,7 @@ devo_data <- SCTransform(devo_data, variable.features.n = 2000,
 ```{r}
 plan("sequential")
 devo_data <- cluster_pca_umap(devo_data, dims_umap = 1:35, dims_neighbors = 1:35, cluster_res = 0.6)
-saveRDS(devo_data, "./data/20210802_merged_devo_data_sct.rds", compress = "bzip2")
+saveRDS(devo_data, "./data/20220118_merged_devo_data_sct.rds", compress = "bzip2")
 ```
 
 # Write data for explorer
@@ -62,7 +62,7 @@ writeAnnData <- function(seurat_obj, filename){
 
 }
 
-filename <- "./20210802_cellxgene_data_draft.h5ad"
+filename <- "./20220118_cellxgene_data_draft.h5ad"
 if (!file.exists(filename)) { # Create if doesn't exist
   writeAnnData(devo_data, filename)
 }

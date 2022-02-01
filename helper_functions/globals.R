@@ -1,4 +1,34 @@
 set.seed(42) # For reproducability
+N_WORKERS <- 2
+n_print <- 1:20
+options(future.globals.maxSize=20*1024*1024^2)
+
+
+
+#' @param x A sparse matrix from the Matrix package.
+#' @param file A filename that ends in ".gz".
+#' From: https://slowkow.com/notes/sparse-matrix/#writemmgz
+writeMMgz <- function(x, file) {
+  mtype <- "real"
+  if (is(x, "ngCMatrix")) {
+    mtype <- "integer"
+  }
+  writeLines(
+    c(
+      sprintf("%%%%MatrixMarket matrix coordinate %s general", mtype),
+      sprintf("%s %s %s", x@Dim[1], x@Dim[2], length(x@x))
+    ),
+    gzfile(file)
+  )
+  data.table::fwrite(
+    x = summary(x),
+    file = file,
+    append = TRUE,
+    sep = " ",
+    row.names = FALSE,
+    col.names = FALSE
+  )
+}
 
 pbzip2_location <- Sys.which("pbzip2")
 if(pbzip2_location != ""){
@@ -15,9 +45,6 @@ jaccard <- function(a, b) {
 }
 
 
-N_WORKERS <- 2
-n_print <- 1:20
-options(future.globals.maxSize=15*1024*1024^2)
 
 
 saveTiff <- function(path, image, width = 5, height = 5, dpi = 300, units = "in"){

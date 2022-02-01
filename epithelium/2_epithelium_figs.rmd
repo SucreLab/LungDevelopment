@@ -29,9 +29,7 @@ plan("multiprocess", workers = N_WORKERS)
 ```{r}
 epi_relabel <- readRDS("./data/20210802_epi_devo_data_sct_labeled.rds")
 epi_relabel
-
 levels(epi_relabel$celltype)[levels(epi_relabel$celltype) == "Cilliated"] <- "Ciliated"
-
 epi_relabel$celltype <- ordered(as.factor(epi_relabel$celltype),
                                 c("Early Epithelium",
                                   "Transitional",
@@ -42,7 +40,6 @@ epi_relabel$celltype <- ordered(as.factor(epi_relabel$celltype),
                                   "Secretory",
                                   "Neuroendocrine"
                                 ))
-
 ```
 
 
@@ -582,4 +579,22 @@ ggsave("./data/figures/epi/at1_vegfa.pdf",
        VlnPlot(at1_seurat, "Vegfa", group.by = "timepoint") + scale_fill_manual(values = color_category_20) + theme(aspect.ratio = 0.8),
        dpi = 300, bg = "transparent",
        width=unit(12, "cm"), height=unit(5.8, "cm"))
+```
+
+```{r}
+cdkn1a_plot <- FeaturePlot(epi_relabel, "Cdkn1a") +
+        featureplot_theme() +
+        theme(aspect.ratio=1,
+              panel.background = element_rect(fill = "transparent", colour = "black"),
+              plot.background = element_rect(color = "transparent", fill = "transparent"),
+              plot.title = element_text(face = "italic")
+        ) +
+        scale_color_viridis(name = "Expression", direction = -1)
+
+
+gridExtra::grid.arrange(egg::set_panel_size(p=cdkn1a_plot, width=unit(10, "cm"), height=unit(10, "cm")))
+ggsave("./data/figures/epi/epi_cdkn1a_umap.png",
+       egg::set_panel_size(p=cdkn1a_plot, width=unit(10, "cm"), height=unit(10, "cm")),
+       dpi = 300, bg = "transparent",
+       width=unit(6, "cm"), height=unit(5, "cm"))
 ```

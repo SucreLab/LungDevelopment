@@ -27,7 +27,7 @@ plan("multiprocess", workers = N_WORKERS)
 ```
 ## Load data from merge and clean pipeline
 ```{r}
-epi_from_split <- readRDS("./data/20210802_epi_devo_data_sct.rds")
+epi_from_split <- readRDS("./data/20221020_epi_devo_data_sct.rds")
 epi_from_split$HTO_HTO_classification.global[is.na(epi_from_split$HTO_HTO_classification.global)] <- "Undefined"
 epi <- subset(epi_from_split, HTO_HTO_classification.global != "Doublet")
 ```
@@ -323,7 +323,7 @@ epi_relabel$celltype <- ordered(as.factor(epi_relabel$celltype),
 
 ```{r}
 plan("multiprocess", workers = N_WORKERS)
-filename <- "./data/20210802_epi_devo_data_sct_labeled.rds"
+filename <- "./data/20221020_epi_devo_data_sct_labeled.rds"
 if (!file.exists(filename)) {
   saveRDS(epi_relabel, filename, compress = "bzip2")
 }
