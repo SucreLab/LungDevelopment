@@ -1,0 +1,45 @@
+---
+title: "scSEQ analysis of all lung cells"
+author: Nick Negretti
+date: 9/30/20
+output: rmarkdown::github_document
+---
+
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+RhpcBLASctl::blas_set_num_threads(4)
+RhpcBLASctl::omp_set_num_threads(4)
+```
+
+
+```{r}
+N_WORKERS <- 12
+plan("multiprocess", workers = N_WORKERS)
+
+filename <- "./data/20221020_merged_devodata_sct_v2.rds"
+merged_seurat <- readRDS(filename)
+
+
+filename_old <- "./data/20221020_merged_devodata_sct.rds"
+merged_seurat_old <- readRDS(filename_old)
+```
+```{r}
+sum(RowSums(GetAssayData(merged_seurat, assay = "RAW_COUNTS", slot = "counts")) == 0)
+sum(RowSums(GetAssayData(merged_seurat_old, assay = "RAW_COUNTS", slot = "counts")) == 0)
+```

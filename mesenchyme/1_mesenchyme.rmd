@@ -24,6 +24,8 @@ source("./helper_functions/heatmaps.R")
 
 N_WORKERS <- 12
 plan("multiprocess", workers = N_WORKERS)
+RhpcBLASctl::blas_set_num_threads(4)
+RhpcBLASctl::omp_set_num_threads(4)
 ```
 ## Load data from merge and clean pipeline
 ```{r}
@@ -72,7 +74,7 @@ DotPlot(meso_sub, features = marker_genes) + theme(axis.text.x = element_text(an
 N_WORKERS <- 12
 plan("multiprocess", workers = N_WORKERS)
 
-filename <- "./data/20210802_meso_devo_data_sct_sub.rds"
+filename <- "./data/20210802_meso_devo_data_sct_sub_v2.rds"
 if (!file.exists(filename)) {
   meso_sub <- SCTransform(meso_sub, variable.features.n = 2000,
                           batch_var = "orig.ident",
@@ -211,7 +213,7 @@ p_cluster + p_time + plot_annotation("Mesenchyme")
 
 
 ```{r}
-filename <- "./data/20221020_meso_labeled.rds"
+filename <- "./data/20221020_meso_labeled_v2.rds"
 if (!file.exists(filename)) {
   saveRDS(meso_relabel, filename, compress = "bzip2")
 } else {

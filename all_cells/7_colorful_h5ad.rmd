@@ -1,0 +1,162 @@
+---
+title: "scSEQ analysis of all lung cells"
+author: Nick Negretti
+date: 9/30/20
+output: rmarkdown::github_document
+---
+
+# Analysis of the lung epithelium
+
+## Load libraries and helper functions
+```{r, results="hide", message = FALSE}
+setwd("~/postdoc/code/devo_scseq_github")
+renv::activate()
+source("./helper_functions/globals.R")
+source("./helper_functions/libraries.R")
+
+#opts_knit$set(root.dir = getwd())
+
+source("./helper_functions/trajectory.R")
+source("./helper_functions/cluster.R")
+source("./helper_functions/colors.R")
+source("./helper_functions/brackets.R")
+source("./helper_functions/heatmaps.R")
+
+N_WORKERS <- 12
+options(future.globals.maxSize=12*1024*1024^2)
+plan("multiprocess", workers = N_WORKERS)
+
+```
+
+```{r}
+merged_seurat <- readRDS("./data/20120802_merged_devodata_sct.rds")
+merged_seurat$timepoint <- ordered(as.factor(merged_seurat$timepoint),
+                                   c("E12", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14"))
+```
+
+```{r}
+epi_relabel <- readRDS("./data/20210802_epi_devo_data_sct_labeled.rds")
+epi_relabel
+
+epi_relabel$celltype <- ordered(as.factor(epi_relabel$celltype),
+                                c("Early Epithelium",
+                                  "Transitional",
+                                  "AT1",
+                                  "AT2",
+                                  "Mki67+ AT2",
+                                  "Ciliated",
+                                  "Secretory",
+                                  "Neuroendocrine"
+                                ))
+epi_relabel$timepoint <- ordered(as.factor(epi_relabel$timepoint),
+                                   c("E12", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14"))
+
+```
+
+```{r}
+endo_relabel <- readRDS("./data/20210802_endo_devo_data_sct_labeled.rds")
+endo_relabel
+
+endo_relabel$celltype <- ordered(as.factor(endo_relabel$celltype),
+                                 c("Arterial maEC",
+                                   "Venous maEC",
+                                   "Prolif. gCap",
+                                   "gCap",
+                                   "aCap",
+                                   "Lymphatic"
+                                ))
+endo_relabel$timepoint <- ordered(as.factor(endo_relabel$timepoint),
+                                 c("E12", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14"))
+```
+
+```{r}
+meso_relabel <- readRDS("./data/20210802_meso_labeled.rds")
+meso_relabel
+## Markers by celltype
+meso_relabel$celltype <- ordered(meso_relabel$celltype, c("Prolif. Wnt2+ FB",
+                                                          "Wnt2+ FB",
+                                                          "Prolif. Myo FB",
+                                                          "Myofibroblast",
+                                                          "Adventitial FB",
+                                                          "Pericyte",
+                                                          "Mesothelium",
+                                                          "Smooth Muscle",
+                                                          "Cardiomyocyte"
+))
+meso_relabel$timepoint <- ordered(as.factor(meso_relabel$timepoint),
+                                  c("E12", "E15", "E16", "E18", "P0", "P3", "P5", "P7", "P14"))
+```
+
+```{r}
+OVERWRITE_FILES <- TRUE
+```
+
+```{r}
+writeAnnData <- function(seurat_obj, filename){
+  anndata::AnnData(X = t(GetAssayData(seurat_obj, slot = "data", assay = "SCT")),
+                   var = data.frame(gene = rownames(seurat_obj),
+                                    row.names = rownames(seurat_obj)),
+                   obs = data.frame(celltype = as.character(seurat_obj$celltype),
+                                    bulk_celltype = as.character(seurat_obj$bulk_celltype),
+                                    #louvain = as.character(seurat_obj$seurat_clusters),
+                                    timepoint = as.character(seurat_obj$timepoint),
+                                    #sex = as.character(seurat_obj$sex),
+                                    #latent_time = as.numeric(seurat_obj$latent_time),
+                                    row.names = colnames(seurat_obj)),
+                   uns = list(#celltype_colors = as.character(color_scanpy_default)[seq_along(levels(seurat_obj$celltype))],
+                              #louvain_colors = as.character(color_category_20)[seq_along(unique(as.character(seurat_obj$seurat_clusters)))],
+                              timepoint_colors = as.character(color_category_20)[seq_along(levels(seurat_obj$timepoint))]
+                   ),
+                   obsm = list(X_umap = matrix(Embeddings(seurat_obj, reduction = "umap"), ncol = 2))
+  )$write_h5ad(filename, compression = "gzip")
+}
+
+filename <- "./data/figures/merged_cellxgene_data.h5ad"
+if (!file.exists(filename) | (OVERWRITE_FILES == TRUE)) { # Create if doesn't exist
+  writeAnnData(merged_seurat, filename)
+}
+```
+
+
+```{r}
+
+writeAnnData <- function(seurat_obj, filename){
+  anndata::AnnData(X = t(GetAssayData(seurat_obj, slot = "data", assay = "SCT")),
+                   var = data.frame(gene = rownames(seurat_obj),
+                                    row.names = rownames(seurat_obj)),
+                   obs = data.frame(celltype = as.character(seurat_obj$celltype),
+                                    #louvain = as.character(seurat_obj$seurat_clusters),
+                                    timepoint = as.character(seurat_obj$timepoint),
+                                    #sex = as.character(seurat_obj$sex),
+                                    #latent_time = as.numeric(seurat_obj$latent_time),
+                                    row.names = colnames(seurat_obj)),
+                   uns = list(celltype_colors = as.character(color_category_20)[seq_along(levels(seurat_obj$celltype))],
+                              #louvain_colors = as.character(color_category_20)[seq_along(unique(as.character(seurat_obj$seurat_clusters)))],
+                              timepoint_colors = as.character(color_category_20)[seq_along(levels(seurat_obj$timepoint))]
+                   ),
+                   obsm = list(X_umap = matrix(Embeddings(seurat_obj, reduction = "umap"), ncol = 2))
+  )$write_h5ad(filename, compression = "gzip")
+}
+
+
+filename <- "./data/figures/meso_cellxgene_data.h5ad"
+if (!file.exists(filename) | (OVERWRITE_FILES == TRUE)) { # Create if doesn't exist
+  writeAnnData(meso_relabel, filename)
+}
+```
+
+
+```{r}
+filename <- "./data/figures/endo_cellxgene_data.h5ad"
+if (!file.exists(filename) | (OVERWRITE_FILES == TRUE)) { # Create if doesn't exist
+  writeAnnData(endo_relabel, filename)
+}
+```
+
+
+```{r}
+filename <- "./data/figures/epi_cellxgene_data.h5ad"
+if (!file.exists(filename) | (OVERWRITE_FILES == TRUE)) { # Create if doesn't exist
+  writeAnnData(epi_relabel, filename)
+}
+```

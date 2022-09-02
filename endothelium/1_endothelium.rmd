@@ -14,7 +14,7 @@ renv::activate()
 source("./helper_functions/globals.R")
 source("./helper_functions/libraries.R")
 
-opts_knit$set(root.dir = getwd())
+#opts_knit$set(root.dir = getwd())
 
 source("./helper_functions/trajectory.R")
 source("./helper_functions/cluster.R")

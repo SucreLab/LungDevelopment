@@ -21,15 +21,17 @@ source("./helper_functions/colors.R")
 source("./helper_functions/brackets.R")
 source("./helper_functions/heatmaps.R")
 
+N_WORKERS <- 12
 plan("multiprocess", workers = N_WORKERS)
+RhpcBLASctl::blas_set_num_threads(4)
+RhpcBLASctl::omp_set_num_threads(4)
 ```
 
-
 ```{r}
-N_WORKERS <- 16
+N_WORKERS <- 12
 plan("multiprocess", workers = N_WORKERS)
 
-filename <- "./data/20221020_merged_devodata_sct.rds"
+filename <- "./data/20221020_merged_devodata_sct_v2.rds"
 if (!file.exists(filename)) {
   if (!file.exists(filename)) {
     epi <- readRDS("./data/20221020_epi_devo_data_sct_labeled.rds")
@@ -42,7 +44,7 @@ if (!file.exists(filename)) {
     endo <- DietSeurat(endo, assays = c("RNA", "RAW_COUNTS"))
     endo$bulk_celltype <- "Endothelial"
 
-    meso <- readRDS("./data/20221020_meso_labeled.rds")
+    meso <- readRDS("./data/20221020_meso_labeled_v2.rds")
     DefaultAssay(meso) <- "RNA"
     meso <- DietSeurat(meso, assays = c("RNA", "RAW_COUNTS"))
     meso$bulk_celltype <- "Mesenchymal"
@@ -52,13 +54,13 @@ if (!file.exists(filename)) {
     merged_seurat$cell_subtype <- Idents(merged_seurat)
     merged_seurat$bulk_celltype <- as.factor(merged_seurat$bulk_celltype)
 
-    saveRDS(merged_seurat, "./data/20221020_merged_devodata.rds")
+    saveRDS(merged_seurat, "./data/20221020_merged_devodata_v2.rds")
     rm(epi)
     rm(endo)
     rm(meso)
     gc()
   } else {
-    merged_seurat <- readRDS("./data/20221020_merged_devodata.rds")
+    merged_seurat <- readRDS("./data/20221020_merged_devodata_v2.rds")
   }
 
 
@@ -330,8 +332,8 @@ ggdata_endo <- subset(ggplot_data, bulk_celltype == "Endothelial")
 ggdata_meso <- subset(ggplot_data, bulk_celltype == "Mesenchymal")
 
 # Combine prolif Wnt2+ w/ Wnt2+. Same for MyoFB.
-ggmeso_subtype_factor <- as.factor(ggdata_meso$celltype)
-ggdata_meso$celltype <- as.factor(ggdata_meso$celltype)
+ggmeso_subtype_factor <- as.factor(droplevels(ggdata_meso$celltype))
+ggdata_meso$celltype <- as.factor(droplevels(ggdata_meso$celltype))
 levels(ggdata_meso$celltype) <- levels(ggmeso_subtype_factor)[c(1:5,4,9,8:9)]
 
 ggdata_epi <- ggdata_epi[ggdata_epi$celltype %in% c("Early Epithelium", "Transitional"),]
